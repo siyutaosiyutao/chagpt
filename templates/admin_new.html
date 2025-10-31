@@ -41,15 +41,19 @@
                 html += `
                     <div class="key-item">
                         <div class="key-info">
-                            <code class="key-code">${key.key_code}</code>
-                            ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
-                            <span class="badge">使用 ${key.usage_count} 次</span>
-                            <div class="key-meta">
-                                <small>${assignedInfo}</small>
-                                <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
+                            <div>
+                                <code class="key-code">${key.key_code}</code>
+                                <div style="margin-top: 8px;">
+                                    ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
+                                    <span class="badge">使用 ${key.usage_count} 次</span>
+                                </div>
+                                <div class="key-meta">
+                                    <small>${assignedInfo}</small>
+                                    <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
+                                </div>
                             </div>
                         </div>
-                        <div>
+                        <div style="display: flex; gap: 8px;">
                             <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
                             <button onclick="deleteKey(${key.id}, true)" class="btn btn-danger btn-sm">🗑️ 删除</button>
                         </div>
@@ -842,14 +846,18 @@
                 html += `
                     <div class="member-item">
                         <div class="member-info">
-                            <strong>${member.email || member.name || 'Unknown'}</strong>
-                            <span class="badge ${isOwner ? 'badge-owner' : ''}">${isOwner ? '所有者' : '成员'}</span>
-                            <div class="member-meta">
-                                <small>User ID: ${member.user_id}</small>
-                                <small>加入时间: ${new Date(member.created_at).toLocaleString('zh-CN')}</small>
+                            <div>
+                                <div>
+                                    <strong>${member.email || member.name || 'Unknown'}</strong>
+                                    <span class="badge ${isOwner ? 'badge-owner' : ''}">${isOwner ? '所有者' : '成员'}</span>
+                                </div>
+                                <div class="member-meta">
+                                    <small>User ID: ${member.user_id}</small>
+                                    <small>加入时间: ${new Date(member.created_at).toLocaleString('zh-CN')}</small>
+                                </div>
                             </div>
                         </div>
-                        ${!isOwner ? `<button onclick="kickMember('${member.user_id}', '${member.email}')" class="btn btn-danger btn-sm">踢出</button>` : ''}
+                        ${!isOwner ? `<button onclick="kickMember('${member.user_id}', '${member.email}')" class="btn btn-danger btn-sm">🚫 踢出</button>` : ''}
                     </div>
                 `;
             });
@@ -960,14 +968,18 @@
                 html += `
                     <div class="key-item">
                         <div class="key-info">
-                            <code class="key-code">${key.key_code}</code>
-                            ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
-                            <span class="badge">已使用 ${key.usage_count} 次</span>
-                            <div class="key-meta">
-                                <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
+                            <div>
+                                <code class="key-code">${key.key_code}</code>
+                                <div style="margin-top: 8px;">
+                                    ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
+                                    <span class="badge">已使用 ${key.usage_count} 次</span>
+                                </div>
+                                <div class="key-meta">
+                                    <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
+                                </div>
                             </div>
                         </div>
-                        <div>
+                        <div style="display: flex; gap: 8px;">
                             <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
                             <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">🗑️ 删除</button>
                         </div>

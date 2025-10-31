@@ -499,24 +499,31 @@ input[type="checkbox"] {
 .member-item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     padding: 15px;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
     background: #fafafa;
+    gap: 15px;
 }
 
 .member-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+    flex: 1;
+}
+
+.member-info strong {
+    font-size: 15px;
+    color: #333;
+}
+
+.member-info .badge {
+    margin-left: 10px;
 }
 
 .member-meta {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-top: 5px;
+    gap: 15px;
+    margin-top: 8px;
 }
 
 .member-meta small {
@@ -534,18 +541,15 @@ input[type="checkbox"] {
 .key-item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     padding: 15px;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
     background: #fafafa;
-    gap: 10px;
+    gap: 15px;
 }
 
 .key-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     flex: 1;
 }
 
@@ -557,12 +561,16 @@ input[type="checkbox"] {
     font-size: 13px;
     color: #e83e8c;
     border: 1px solid #e0e0e0;
+    display: inline-block;
 }
 
 .key-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    margin-top: 8px;
+}
+
+.key-meta small {
+    color: #999;
+    font-size: 12px;
 }
 
 /* 日志表格 */
