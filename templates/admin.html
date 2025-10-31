@@ -412,29 +412,7 @@
         </div>
     </div>
 
-    <!-- 邀请码管理弹窗 -->
-    <div id="keysModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="keysModalTitle">🔑 邀请码管理</h2>
-                <span class="close" onclick="closeKeysModal()">&times;</span>
-            </div>
 
-            <div id="keysList">加载中...</div>
-
-            <h3 style="margin-top: 30px;">➕ 生成新邀请码</h3>
-            <form id="createKeyForm" onsubmit="createInviteKey(event)">
-                <input type="hidden" id="key_team_id">
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="key_is_temp">
-                        1日邀请码 (使用后24小时自动踢出,除非确认)
-                    </label>
-                </div>
-                <button type="submit" class="btn btn-primary">生成邀请码</button>
-            </form>
-        </div>
-    </div>
 
     <script>
         let currentTeamId = null;
@@ -564,12 +542,10 @@
                             <p><strong>邮箱:</strong> ${team.email || '未设置'}</p>
                             <p><strong>Account ID:</strong> <code>${team.account_id}</code></p>
                             <p><strong>Organization ID:</strong> <code>${team.organization_id || '无'}</code></p>
-                            <p><strong>邀请码数量:</strong> ${team.total_keys} 个</p>
                             <p><strong>创建时间:</strong> ${new Date(team.created_at).toLocaleString('zh-CN')}</p>
                         </div>
                         <div class="team-actions">
                             <button onclick="showMembers(${team.id}, '${team.name}')" class="btn btn-primary btn-sm">👥 成员管理</button>
-                            <button onclick="showKeys(${team.id}, '${team.name}')" class="btn btn-secondary btn-sm">🔑 邀请码</button>
                             <button onclick="updateToken(${team.id})" class="btn btn-secondary btn-sm">🔄 更新Token</button>
                             <button onclick="deleteTeam(${team.id}, '${team.name}')" class="btn btn-danger btn-sm">🗑️ 删除</button>
                         </div>
@@ -696,133 +672,7 @@
             document.getElementById('membersModal').style.display = 'none';
         }
 
-        // 显示邀请码管理弹窗
-        async function showKeys(teamId, teamName) {
-            currentTeamId = teamId;
-            document.getElementById('keysModalTitle').textContent = `🔑 ${teamName} - 邀请码管理`;
-            document.getElementById('key_team_id').value = teamId;
-            document.getElementById('keysModal').style.display = 'block';
 
-            // 加载邀请码列表
-            loadTeamKeys(teamId);
-        }
-
-        // 加载 Team 的邀请码
-        async function loadTeamKeys(teamId) {
-            try {
-                const response = await fetch('/api/admin/teams');
-                const data = await response.json();
-
-                if (data.success) {
-                    const team = data.teams.find(t => t.id === teamId);
-                    if (team) {
-                        displayKeys(team.keys);
-                    }
-                }
-            } catch (error) {
-                console.error('加载邀请码失败:', error);
-            }
-        }
-
-        // 显示邀请码列表
-        function displayKeys(keys) {
-            const container = document.getElementById('keysList');
-
-            if (!keys || keys.length === 0) {
-                container.innerHTML = '<p>暂无邀请码</p>';
-                return;
-            }
-
-            let html = '<h3>邀请码列表</h3><div class="keys-list">';
-
-            keys.forEach(key => {
-                html += `
-                    <div class="key-item">
-                        <div class="key-info">
-                            <div>
-                                <code class="key-code">${key.key_code}</code>
-                                <div style="margin-top: 8px;">
-                                    ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
-                                    <span class="badge">已使用 ${key.usage_count} 次</span>
-                                </div>
-                                <div class="key-meta">
-                                    <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
-                            <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">🗑️ 删除</button>
-                        </div>
-                    </div>
-                `;
-            });
-
-            html += '</div>';
-            container.innerHTML = html;
-        }
-
-        // 生成邀请码
-        async function createInviteKey(e) {
-            e.preventDefault();
-
-            const teamId = document.getElementById('key_team_id').value;
-            const isTemp = document.getElementById('key_is_temp').checked;
-
-            try {
-                const response = await fetch(`/api/admin/teams/${teamId}/keys`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ is_temp: isTemp, temp_hours: 24 })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
-                    navigator.clipboard.writeText(data.key_code);
-                    document.getElementById('createKeyForm').reset();
-                    loadTeamKeys(teamId);
-                } else {
-                    alert('错误: ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        // 复制邀请码
-        function copyKey(keyCode) {
-            navigator.clipboard.writeText(keyCode);
-            alert('邀请码已复制到剪贴板！');
-        }
-
-        // 删除邀请码
-        async function deleteKey(keyId) {
-            if (!confirm('确定要删除这个邀请码吗？')) return;
-
-            try {
-                const response = await fetch(`/api/admin/keys/${keyId}`, {
-                    method: 'DELETE'
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert('邀请码已删除');
-                    loadTeamKeys(currentTeamId);
-                } else {
-                    alert('错误: ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        // 关闭邀请码管理弹窗
-        function closeKeysModal() {
-            document.getElementById('keysModal').style.display = 'none';
-        }
 
         // 更新 Token
         async function updateToken(teamId) {

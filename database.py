@@ -280,32 +280,6 @@ class AccessKey:
             return [dict(row) for row in cursor.fetchall()]
 
     @staticmethod
-    def get_by_team(team_id):
-        """获取指定 Team 已绑定的邀请码"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT ak.*,
-                       (SELECT COUNT(*) FROM invitations WHERE key_id = ak.id AND status = 'success') as usage_count
-                FROM access_keys ak
-                WHERE ak.team_id = ? AND ak.is_cancelled = 0
-                ORDER BY ak.created_at DESC
-            ''', (team_id,))
-            return [dict(row) for row in cursor.fetchall()]
-
-    @staticmethod
-    def count_by_team(team_id):
-        """统计指定 Team 已绑定的邀请码数量"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT COUNT(*) FROM access_keys
-                WHERE team_id = ? AND is_cancelled = 0
-            ''', (team_id,))
-            row = cursor.fetchone()
-            return row[0] if row else 0
-
-    @staticmethod
     def get_by_code(key_code):
         """根据密钥获取信息"""
         with get_db() as conn:

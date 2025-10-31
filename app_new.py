@@ -96,9 +96,18 @@ def join_team():
     if assigned_team_id:
         team = Team.get_by_id(assigned_team_id)
         if team:
-            existing_members = Invitation.get_all_emails_by_team(team['id'])
-            if len(existing_members) >= 4:
-                # 已分配的 Team 已满,释放绑定,重新分配
+            # 检查实际成员数
+            members_result = get_team_members(team['access_token'], team['account_id'])
+            if members_result['success']:
+                members = members_result.get('members', [])
+                non_owner_members = [m for m in members if m.get('role') != 'account-owner']
+                if len(non_owner_members) >= 4:
+                    # 已分配的 Team 已满,释放绑定,重新分配
+                    AccessKey.assign_team(key_info['id'], None)
+                    team = None
+                    assigned_team_id = None
+            else:
+                # 无法获取成员列表,释放绑定
                 AccessKey.assign_team(key_info['id'], None)
                 team = None
                 assigned_team_id = None
@@ -114,14 +123,21 @@ def join_team():
         team = available_teams[0]
         AccessKey.assign_team(key_info['id'], team['id'])
 
-    # 检查 Team 人数是否已满 (上限 4 人)
-    invited_emails = Invitation.get_all_emails_by_team(team['id'])
-    if len(invited_emails) >= 4:
-        return jsonify({"success": False, "error": "该 Team 已达到人数上限 (4人)"}), 400
+    # 获取实际成员列表并检查
+    members_result = get_team_members(team['access_token'], team['account_id'])
+    if not members_result['success']:
+        return jsonify({"success": False, "error": f"无法获取成员列表: {members_result.get('error')}"}), 500
 
-    # 检查该邮箱是否已被邀请到该 Team
-    if email in invited_emails:
-        return jsonify({"success": False, "error": f"该邮箱已被邀请到 {team['name']} 团队"}), 400
+    members = members_result.get('members', [])
+    non_owner_members = [m for m in members if m.get('role') != 'account-owner']
+
+    if len(non_owner_members) >= 4:
+        return jsonify({"success": False, "error": "该 Team 已达到人数上限 (不含队长最多4人)"}), 400
+
+    # 检查该邮箱是否已在 Team 中
+    member_emails = [m.get('email') for m in members]
+    if email in member_emails:
+        return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
 
     # 尝试邀请
     result = invite_to_team(
@@ -242,8 +258,6 @@ def get_teams():
         invitations = Invitation.get_by_team(team['id'])
         team['invitations'] = invitations
         team['member_count'] = len(set(inv['email'] for inv in invitations if inv['status'] == 'success'))
-        team['keys'] = AccessKey.get_by_team(team['id'])
-        team['total_keys'] = len(team['keys'])
         team['available_slots'] = max(0, 4 - team['member_count'])
 
     return jsonify({"success": True, "teams": teams})
@@ -352,31 +366,6 @@ def get_all_keys():
     try:
         keys = AccessKey.get_all()
         return jsonify({"success": True, "keys": keys})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/api/admin/teams/<int:team_id>/keys', methods=['POST'])
-@admin_required
-def create_team_invite_key(team_id):
-    """为指定 Team 创建新的邀请码"""
-    data = request.json
-    is_temp = data.get('is_temp', False)
-    temp_hours = data.get('temp_hours', 24) if is_temp else 0
-
-    try:
-        # 验证 Team 是否存在 (仅用于提醒,不再提前绑定 Team)
-        team = Team.get_by_id(team_id)
-        if not team:
-            return jsonify({"success": False, "error": "Team 不存在"}), 404
-
-        result = AccessKey.create(team_id=None, is_temp=is_temp, temp_hours=temp_hours)
-        return jsonify({
-            "success": True,
-            "key_id": result['id'],
-            "key_code": result['key_code'],
-            "message": "邀请码创建成功,将在首次使用时自动分配 Team"
-        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -583,7 +572,7 @@ def admin_invite_member(team_id):
     if not team:
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
-    # 检查 Team 人数是否已满
+    # 检查 Team 人数是否已满 (检查邀请记录数)
     invited_emails = Invitation.get_all_emails_by_team(team_id)
     if len(invited_emails) >= 4:
         return jsonify({"success": False, "error": "该 Team 已达到人数上限 (4人)"}), 400
