@@ -424,6 +424,7 @@
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('teams')">📋 Teams 管理</button>
+            <button class="tab" onclick="switchTab('members')">👥 成员管理</button>
             <button class="tab" onclick="switchTab('keys')">🔑 邀请码池</button>
             <button class="tab" onclick="switchTab('config')">⚙️ 自动踢人配置</button>
             <button class="tab" onclick="switchTab('logs')">📊 踢人日志</button>
@@ -449,6 +450,33 @@
 
             <h2>现有 Teams</h2>
             <div id="teamsList"></div>
+        </div>
+
+        <!-- 成员管理 -->
+        <div id="membersTab" class="tab-content">
+            <h2>快速邀请成员</h2>
+            <form id="quickInviteForm" onsubmit="quickInviteMember(event)">
+                <div class="form-group">
+                    <label>选择 Team:</label>
+                    <select id="quick_invite_team" required>
+                        <option value="">请选择 Team</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>邮箱地址:</label>
+                    <input type="email" id="quick_invite_email" required placeholder="user@example.com">
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="quick_invite_is_temp">
+                    <label for="quick_invite_is_temp">临时邀请 (24小时后自动踢出)</label>
+                </div>
+                <button type="submit" class="btn btn-primary">📧 发送邀请</button>
+            </form>
+
+            <hr style="margin: 30px 0;">
+
+            <h2>所有成员列表</h2>
+            <div id="allMembersList"></div>
         </div>
 
         <!-- 邀请码池 -->
@@ -604,6 +632,21 @@
             event.target.classList.add('active');
 
             // 重新加载数据
+            if (tabName === 'members') {
+                loadAllMembers();
+                // 加载 Team 选项
+                fetch('/api/admin/teams')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            const select = document.getElementById('quick_invite_team');
+                            select.innerHTML = '<option value="">请选择 Team</option>';
+                            data.teams.forEach(team => {
+                                select.innerHTML += `<option value="${team.id}">${team.name}</option>`;
+                            });
+                        }
+                    });
+            }
             if (tabName === 'keys') loadGlobalKeys();
             if (tabName === 'logs') loadKickLogs();
             if (tabName === 'invitations') loadInvitations();
@@ -1141,6 +1184,133 @@
 
             html += '</tbody></table>';
             container.innerHTML = html;
+        }
+
+        // 快速邀请成员
+        async function quickInviteMember(e) {
+            e.preventDefault();
+
+            const teamId = document.getElementById('quick_invite_team').value;
+            const email = document.getElementById('quick_invite_email').value;
+            const isTemp = document.getElementById('quick_invite_is_temp').checked;
+
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}/invite`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: email,
+                        is_temp: isTemp,
+                        temp_hours: 24
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`✅ ${data.message}\n\n请通知用户查收邮件并确认加入。`);
+                    document.getElementById('quickInviteForm').reset();
+                    loadAllMembers();
+                    loadInvitations();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 加载所有成员列表
+        async function loadAllMembers() {
+            try {
+                const teamsResponse = await fetch('/api/admin/teams');
+                const teamsData = await teamsResponse.json();
+
+                if (!teamsData.success) {
+                    document.getElementById('allMembersList').innerHTML = '<p>加载失败</p>';
+                    return;
+                }
+
+                const teams = teamsData.teams;
+                let html = '';
+
+                for (const team of teams) {
+                    try {
+                        const membersResponse = await fetch(`/api/admin/teams/${team.id}/members`);
+                        const membersData = await membersResponse.json();
+
+                        if (membersData.success && membersData.members.length > 0) {
+                            html += `
+                                <div class="card" style="margin-bottom: 20px;">
+                                    <h3>${team.name} (${membersData.members.length}/4 人)</h3>
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th>邮箱</th>
+                                                <th>角色</th>
+                                                <th>加入时间</th>
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                            `;
+
+                            membersData.members.forEach(member => {
+                                const canKick = member.role !== 'account-owner';
+                                html += `
+                                    <tr>
+                                        <td>${member.email}</td>
+                                        <td>${member.role === 'account-owner' ? '👑 所有者' : '👤 成员'}</td>
+                                        <td>${member.added_at ? new Date(member.added_at).toLocaleString('zh-CN') : '-'}</td>
+                                        <td>
+                                            ${canKick ? `<button onclick="kickMemberFromList(${team.id}, '${member.user_id}', '${member.email}')" class="btn btn-danger btn-sm">🚫 踢出</button>` : '-'}
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+
+                            html += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `;
+                        }
+                    } catch (error) {
+                        console.error(`加载 ${team.name} 成员失败:`, error);
+                    }
+                }
+
+                if (!html) {
+                    html = '<p style="color: #666;">暂无成员数据</p>';
+                }
+
+                document.getElementById('allMembersList').innerHTML = html;
+            } catch (error) {
+                document.getElementById('allMembersList').innerHTML = '<p>加载失败: ' + error.message + '</p>';
+            }
+        }
+
+        // 从列表踢出成员
+        async function kickMemberFromList(teamId, userId, email) {
+            if (!confirm(`确定要踢出 ${email} 吗？`)) return;
+
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}/members/${userId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ 成员已踢出');
+                    loadAllMembers();
+                    loadTeams();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
         }
 
         // 确认邀请
