@@ -76,7 +76,7 @@ def index():
 
 @app.route('/api/join', methods=['POST'])
 def join_team():
-    """用户加入 Team (新逻辑: 自动从未满员的 Team 中选择)"""
+    """用户加入 Team (新逻辑: 邀请码对应特定 Team)"""
     data = request.json
     email = data.get('email', '').strip()
     key_code = data.get('key_code', '').strip()
@@ -89,85 +89,69 @@ def join_team():
     if not key_info:
         return jsonify({"success": False, "error": "无效的访问密钥"}), 400
 
-    # 获取所有未满员的 Team (按成员数从多到少排序)
-    available_teams = Team.get_available_teams()
+    # 获取邀请码对应的 Team
+    team = Team.get_by_id(key_info['team_id'])
+    if not team:
+        return jsonify({"success": False, "error": "该邀请码对应的 Team 不存在"}), 400
 
-    if not available_teams:
-        return jsonify({"success": False, "error": "暂无可用的 Team,所有 Team 都已满员"}), 400
+    # 检查 Team 人数是否已满 (上限 4 人)
+    invited_emails = Invitation.get_all_emails_by_team(team['id'])
+    if len(invited_emails) >= 4:
+        return jsonify({"success": False, "error": "该 Team 已达到人数上限 (4人)"}), 400
 
-    # 检查该邮箱是否已被邀请到任何 Team
-    for team in available_teams:
-        invited_emails = Invitation.get_all_emails_by_team(team['id'])
-        if email in invited_emails:
-            return jsonify({"success": False, "error": f"该邮箱已被邀请到 {team['name']} 团队"}), 400
+    # 检查该邮箱是否已被邀请到该 Team
+    if email in invited_emails:
+        return jsonify({"success": False, "error": f"该邮箱已被邀请到 {team['name']} 团队"}), 400
 
-    # 尝试邀请到每个 Team,直到成功
-    failed_teams = []
+    # 尝试邀请
+    result = invite_to_team(
+        team['access_token'],
+        team['account_id'],
+        email
+    )
 
-    for team in available_teams:
-        # 再次检查人数 (防止并发问题)
-        invited_emails = Invitation.get_all_emails_by_team(team['id'])
-        if len(invited_emails) >= 4:
-            continue
+    if result['success']:
+        # 计算过期时间 (如果是临时邀请码)
+        temp_expire_at = None
+        if key_info['is_temp'] and key_info['temp_hours'] > 0:
+            beijing_tz = pytz.timezone('Asia/Shanghai')
+            now = datetime.now(beijing_tz)
+            temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
 
-        # 尝试邀请
-        result = invite_to_team(
-            team['access_token'],
-            team['account_id'],
-            email
+        # 记录邀请
+        Invitation.create(
+            team_id=team['id'],
+            email=email,
+            key_id=key_info['id'],
+            invite_id=result.get('invite_id'),
+            status='success',
+            is_temp=key_info['is_temp'],
+            temp_expire_at=temp_expire_at
         )
 
-        if result['success']:
-            # 计算过期时间 (如果是临时邀请码)
-            temp_expire_at = None
-            if key_info['is_temp'] and key_info['temp_hours'] > 0:
-                beijing_tz = pytz.timezone('Asia/Shanghai')
-                now = datetime.now(beijing_tz)
-                temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
+        message = f"🎉 成功加入 {team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
 
-            # 记录邀请
-            Invitation.create(
-                team_id=team['id'],
-                email=email,
-                key_id=key_info['id'],
-                invite_id=result.get('invite_id'),
-                status='success',
-                is_temp=key_info['is_temp'],
-                temp_expire_at=temp_expire_at
-            )
+        if key_info['is_temp'] and key_info['temp_hours'] > 0:
+            message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
 
-            message = f"🎉 成功加入 {team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
+        return jsonify({
+            "success": True,
+            "message": message,
+            "team_name": team['name'],
+            "email": email
+        })
+    else:
+        # 记录失败的邀请
+        Invitation.create(
+            team_id=team['id'],
+            email=email,
+            key_id=key_info['id'],
+            status='failed'
+        )
 
-            if key_info['is_temp'] and key_info['temp_hours'] > 0:
-                message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
-
-            return jsonify({
-                "success": True,
-                "message": message,
-                "team_name": team['name'],
-                "email": email
-            })
-        else:
-            # 记录失败的邀请
-            Invitation.create(
-                team_id=team['id'],
-                email=email,
-                key_id=key_info['id'],
-                status='failed'
-            )
-
-            # 记录失败的 Team,继续尝试下一个
-            failed_teams.append({
-                'team_name': team['name'],
-                'error': result.get('error', '未知错误')
-            })
-            continue
-
-    # 所有 Team 都邀请失败
-    error_details = "\n".join([f"- {t['team_name']}: {t['error']}" for t in failed_teams])
-    return jsonify({
-        "success": False,
-        "error": f"所有 Team 邀请都失败了:\n{error_details}"
+        return jsonify({
+            "success": False,
+            "error": f"邀请失败: {result.get('error', '未知错误')}"
     }), 500
 
 
@@ -178,7 +162,7 @@ def admin_page():
     """管理员页面"""
     if not session.get('is_admin'):
         return render_template('admin_login.html')
-    return render_template('admin.html')
+    return render_template('admin_new.html')
 
 
 @app.route('/api/admin/login', methods=['POST'])
@@ -349,16 +333,42 @@ def get_all_keys():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/api/admin/keys', methods=['POST'])
+@app.route('/api/admin/teams/<int:team_id>/keys', methods=['POST'])
 @admin_required
-def create_invite_key():
-    """创建新的邀请码 (不绑定特定 Team)"""
+def create_team_invite_key(team_id):
+    """为指定 Team 创建新的邀请码"""
     data = request.json
     is_temp = data.get('is_temp', False)
     temp_hours = data.get('temp_hours', 24) if is_temp else 0
 
     try:
-        result = AccessKey.create(is_temp=is_temp, temp_hours=temp_hours)
+        # 验证 Team 是否存在
+        team = Team.get_by_id(team_id)
+        if not team:
+            return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+        result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
+        return jsonify({
+            "success": True,
+            "key_id": result['id'],
+            "key_code": result['key_code'],
+            "message": "邀请码创建成功"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/keys', methods=['POST'])
+@admin_required
+def create_invite_key():
+    """创建新的邀请码 (不绑定特定 Team)"""
+    data = request.json
+    team_id = data.get('team_id')
+    is_temp = data.get('is_temp', False)
+    temp_hours = data.get('temp_hours', 24) if is_temp else 0
+
+    try:
+        result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
         return jsonify({
             "success": True,
             "key_id": result['id'],
@@ -571,26 +581,48 @@ def admin_invite_member(team_id):
 def get_auto_kick_config():
     """获取自动踢人配置"""
     config = AutoKickConfig.get()
+
+    if config:
+        # 转换为前端需要的格式
+        start_time = config.get('start_time', '00:00')
+        end_time = config.get('end_time', '23:59')
+
+        # 提取小时
+        start_hour = int(start_time.split(':')[0])
+        end_hour = int(end_time.split(':')[0])
+
+        config['check_interval'] = config.get('check_interval_min', 300)
+        config['run_hours'] = f"{start_hour}-{end_hour}"
+
     return jsonify({"success": True, "config": config})
 
 
-@app.route('/api/admin/auto-kick/config', methods=['PUT'])
+@app.route('/api/admin/auto-kick/config', methods=['POST', 'PUT'])
 @admin_required
 def update_auto_kick_config():
     """更新自动踢人配置"""
     data = request.json
 
+    check_interval = data.get('check_interval', 300)
+    run_hours = data.get('run_hours', '0-23')
+
     try:
+        # 解析运行时间段
+        if '-' in run_hours:
+            start_hour, end_hour = map(int, run_hours.split('-'))
+        else:
+            start_hour, end_hour = 0, 23
+
         AutoKickConfig.update(
-            enabled=data.get('enabled'),
-            check_interval_min=data.get('check_interval_min'),
-            check_interval_max=data.get('check_interval_max'),
-            start_time=data.get('start_time'),
-            end_time=data.get('end_time')
+            enabled=data.get('enabled', True),
+            check_interval_min=check_interval,
+            check_interval_max=check_interval,
+            start_time=f"{start_hour:02d}:00",
+            end_time=f"{end_hour:02d}:59"
         )
 
         # 如果启用了自动检测,启动服务
-        if data.get('enabled'):
+        if data.get('enabled', True):
             auto_kick_service.start()
         else:
             auto_kick_service.stop()

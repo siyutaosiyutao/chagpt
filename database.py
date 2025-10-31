@@ -42,15 +42,17 @@ def init_db():
             )
         ''')
         
-        # Access Keys 表 (重构: 邀请码不绑定特定 Team,系统自动分配)
+        # Access Keys 表 (重构: 每个邀请码对应一个 Team)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS access_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
                 key_code TEXT NOT NULL UNIQUE,
                 is_temp BOOLEAN DEFAULT 0,
                 temp_hours INTEGER DEFAULT 0,
                 is_cancelled BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE
             )
         ''')
         
@@ -234,15 +236,15 @@ class Team:
 
 class AccessKey:
     @staticmethod
-    def create(is_temp=False, temp_hours=0):
-        """创建新的邀请码 (不绑定特定 Team)"""
+    def create(team_id, is_temp=False, temp_hours=0):
+        """创建新的邀请码 (绑定到指定 Team)"""
         key_code = secrets.token_urlsafe(KEY_LENGTH)
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO access_keys (key_code, is_temp, temp_hours)
-                VALUES (?, ?, ?)
-            ''', (key_code, is_temp, temp_hours))
+                INSERT INTO access_keys (team_id, key_code, is_temp, temp_hours)
+                VALUES (?, ?, ?, ?)
+            ''', (team_id, key_code, is_temp, temp_hours))
             return {
                 'id': cursor.lastrowid,
                 'key_code': key_code
@@ -255,8 +257,10 @@ class AccessKey:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT ak.*,
+                       t.name as team_name,
                        (SELECT COUNT(*) FROM invitations WHERE key_id = ak.id) as usage_count
                 FROM access_keys ak
+                LEFT JOIN teams t ON ak.team_id = t.id
                 WHERE ak.is_cancelled = 0
                 ORDER BY ak.created_at DESC
             ''')
@@ -264,7 +268,7 @@ class AccessKey:
 
     @staticmethod
     def get_by_code(key_code):
-        """根据密钥获取信息 (不再绑定特定 Team)"""
+        """根据密钥获取信息"""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
