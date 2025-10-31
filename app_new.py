@@ -384,14 +384,19 @@ def create_team_invite_key(team_id):
 @app.route('/api/admin/keys', methods=['POST'])
 @admin_required
 def create_invite_key():
-    """创建新的邀请码 (不绑定特定 Team)"""
+    """创建新的邀请码 (不绑定特定 Team),支持批量生成"""
     data = request.json
     team_id_raw = data.get('team_id')
     team_id = None
     is_temp = data.get('is_temp', False)
     temp_hours = data.get('temp_hours', 24) if is_temp else 0
+    count = data.get('count', 1)  # 批量生成数量,默认1个
 
     try:
+        # 验证数量
+        if not isinstance(count, int) or count < 1 or count > 100:
+            return jsonify({"success": False, "error": "数量必须在 1-100 之间"}), 400
+
         if team_id_raw not in (None, '', 'null'):
             try:
                 team_id = int(team_id_raw)
@@ -401,13 +406,29 @@ def create_invite_key():
             team = Team.get_by_id(team_id)
             if not team:
                 return jsonify({"success": False, "error": "Team 不存在"}), 404
-        result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
-        return jsonify({
-            "success": True,
-            "key_id": result['id'],
-            "key_code": result['key_code'],
-            "message": "邀请码创建成功" if team_id else "邀请码创建成功,将在首次使用时自动分配 Team"
-        })
+
+        # 批量生成邀请码
+        results = []
+        for _ in range(count):
+            result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
+            results.append(result)
+
+        if count == 1:
+            # 单个生成,返回原格式
+            return jsonify({
+                "success": True,
+                "key_id": results[0]['id'],
+                "key_code": results[0]['key_code'],
+                "message": "邀请码创建成功" if team_id else "邀请码创建成功,将在首次使用时自动分配 Team"
+            })
+        else:
+            # 批量生成,返回列表
+            return jsonify({
+                "success": True,
+                "count": count,
+                "keys": [r['key_code'] for r in results],
+                "message": f"成功生成 {count} 个邀请码"
+            })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

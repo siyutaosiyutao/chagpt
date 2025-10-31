@@ -66,6 +66,7 @@
 
             const isTemp = document.getElementById('global_key_is_temp').checked;
             const teamId = document.getElementById('global_key_team').value;
+            const count = parseInt(document.getElementById('global_key_count').value) || 1;
 
             try {
                 const response = await fetch('/api/admin/keys', {
@@ -74,15 +75,24 @@
                     body: JSON.stringify({
                         is_temp: isTemp,
                         temp_hours: 24,
-                        team_id: teamId || null
+                        team_id: teamId || null,
+                        count: count
                     })
                 });
 
                 const data = await response.json();
 
                 if (data.success) {
-                    alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
-                    navigator.clipboard.writeText(data.key_code);
+                    if (count === 1) {
+                        // 单个生成
+                        alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
+                        navigator.clipboard.writeText(data.key_code);
+                    } else {
+                        // 批量生成
+                        const keysText = data.keys.join('\n');
+                        alert(`成功生成 ${count} 个邀请码！\n\n${keysText}\n\n已复制到剪贴板`);
+                        navigator.clipboard.writeText(keysText);
+                    }
                     document.getElementById('globalCreateKeyForm').reset();
                     loadGlobalKeys();
                     loadTeams();
@@ -455,6 +465,11 @@
                         <option value="">自动选择可用 Team</option>
                     </select>
                     <small style="color: #666;">如不选择,系统将在使用时自动分配拥有空位的 Team</small>
+                </div>
+                <div class="form-group">
+                    <label>生成数量:</label>
+                    <input type="number" id="global_key_count" min="1" max="100" value="1" required>
+                    <small style="color: #666;">一次最多生成 100 个邀请码</small>
                 </div>
                 <button type="submit" class="btn btn-primary">🔑 生成邀请码</button>
             </form>
