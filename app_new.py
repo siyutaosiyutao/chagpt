@@ -402,22 +402,13 @@ def create_invite_key():
             result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
             results.append(result)
 
-        if count == 1:
-            # 单个生成,返回原格式
-            return jsonify({
-                "success": True,
-                "key_id": results[0]['id'],
-                "key_code": results[0]['key_code'],
-                "message": "邀请码创建成功" if team_id else "邀请码创建成功,将在首次使用时自动分配 Team"
-            })
-        else:
-            # 批量生成,返回列表
-            return jsonify({
-                "success": True,
-                "count": count,
-                "keys": [r['key_code'] for r in results],
-                "message": f"成功生成 {count} 个邀请码"
-            })
+        # 返回生成的邀请码列表
+        return jsonify({
+            "success": True,
+            "count": count,
+            "keys": results,  # 返回完整的key对象
+            "message": f"成功生成 {count} 个邀请码" if count > 1 else "邀请码创建成功"
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -510,6 +501,22 @@ def get_members(team_id):
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
     result = get_team_members(team['access_token'], team['account_id'])
+
+    # 为每个成员添加临时邀请信息
+    if result['success']:
+        for member in result['members']:
+            invitation = Invitation.get_by_user_id(team_id, member['user_id'])
+            if invitation:
+                member['invitation_id'] = invitation['id']
+                member['is_temp'] = invitation['is_temp']
+                member['is_confirmed'] = invitation['is_confirmed']
+                member['temp_expire_at'] = invitation['temp_expire_at']
+            else:
+                member['invitation_id'] = None
+                member['is_temp'] = False
+                member['is_confirmed'] = False
+                member['temp_expire_at'] = None
+
     return jsonify(result)
 
 
@@ -617,6 +624,197 @@ def admin_invite_member(team_id):
             "success": False,
             "error": f"邀请失败: {result.get('error', '未知错误')}"
         }), 500
+
+
+@app.route('/api/admin/teams/<int:team_id>/kick-by-email', methods=['POST'])
+@admin_required
+def kick_member_by_email(team_id):
+    """通过邮箱踢出成员"""
+    data = request.json
+    email = data.get('email', '').strip().lower()
+
+    if not email:
+        return jsonify({"success": False, "error": "请输入邮箱"}), 400
+
+    team = Team.get_by_id(team_id)
+    if not team:
+        return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+    # 获取成员列表
+    members_result = get_team_members(team['access_token'], team['account_id'])
+    if not members_result['success']:
+        return jsonify({"success": False, "error": "无法获取成员列表"}), 500
+
+    # 查找匹配的成员
+    member = next((m for m in members_result['members']
+                   if m.get('email', '').lower() == email), None)
+
+    if not member:
+        return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员"}), 404
+
+    # 检查是否为所有者
+    if member.get('role') == 'account-owner':
+        return jsonify({"success": False, "error": "不能踢出团队所有者"}), 400
+
+    user_id = member.get('user_id') or member.get('id')
+
+    # 执行踢人
+    result = kick_member(team['access_token'], team['account_id'], user_id)
+
+    if result['success']:
+        # 记录日志
+        KickLog.create(
+            team_id=team_id,
+            user_id=user_id,
+            email=email,
+            reason='管理员通过邮箱手动踢出',
+            success=True
+        )
+        return jsonify({"success": True, "message": f"已成功踢出 {email}"})
+    else:
+        KickLog.create(
+            team_id=team_id,
+            user_id=user_id,
+            email=email,
+            reason='管理员通过邮箱手动踢出',
+            success=False,
+            error_message=result.get('error')
+        )
+        return jsonify({"success": False, "error": result.get('error')}), 500
+
+
+@app.route('/api/admin/invite-auto', methods=['POST'])
+@admin_required
+def admin_invite_auto():
+    """管理员邀请成员(自动分配Team)"""
+    data = request.json
+    email = data.get('email', '').strip()
+    is_temp = data.get('is_temp', False)
+    temp_hours = data.get('temp_hours', 24) if is_temp else 0
+
+    if not email:
+        return jsonify({"success": False, "error": "请输入邮箱"}), 400
+
+    # 获取可用的Team
+    available_teams = Team.get_available_teams()
+    if not available_teams:
+        return jsonify({"success": False, "error": "当前无可用 Team,请先添加 Team"}), 400
+
+    team = available_teams[0]  # 选择第一个可用的Team
+
+    # 检查该邮箱是否已被邀请到该Team
+    invited_emails = Invitation.get_all_emails_by_team(team['id'])
+    if email in invited_emails:
+        return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
+
+    # 执行邀请
+    result = invite_to_team(team['access_token'], team['account_id'], email)
+
+    if result['success']:
+        # 计算过期时间
+        temp_expire_at = None
+        if is_temp and temp_hours > 0:
+            beijing_tz = pytz.timezone('Asia/Shanghai')
+            now = datetime.now(beijing_tz)
+            temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+
+        # 记录邀请
+        Invitation.create(
+            team_id=team['id'],
+            email=email,
+            invite_id=result.get('invite_id'),
+            status='success',
+            is_temp=is_temp,
+            temp_expire_at=temp_expire_at
+        )
+
+        return jsonify({
+            "success": True,
+            "message": f"已成功邀请 {email} 加入 {team['name']}",
+            "team_name": team['name'],
+            "invite_id": result.get('invite_id')
+        })
+    else:
+        Invitation.create(
+            team_id=team['id'],
+            email=email,
+            status='failed'
+        )
+        return jsonify({
+            "success": False,
+            "error": f"邀请失败: {result.get('error', '未知错误')}"
+        }), 500
+
+
+@app.route('/api/admin/kick-by-email-auto', methods=['POST'])
+@admin_required
+def kick_member_by_email_auto():
+    """通过邮箱踢出成员(自动查找所有Team)"""
+    data = request.json
+    email = data.get('email', '').strip().lower()
+
+    if not email:
+        return jsonify({"success": False, "error": "请输入邮箱"}), 400
+
+    # 获取所有Team
+    teams = Team.get_all()
+    if not teams:
+        return jsonify({"success": False, "error": "当前没有 Team"}), 404
+
+    # 遍历所有Team查找该成员
+    found_team = None
+    found_member = None
+
+    for team in teams:
+        # 获取成员列表
+        members_result = get_team_members(team['access_token'], team['account_id'])
+        if not members_result['success']:
+            continue
+
+        # 查找匹配的成员
+        member = next((m for m in members_result['members']
+                       if m.get('email', '').lower() == email), None)
+
+        if member:
+            found_team = team
+            found_member = member
+            break
+
+    if not found_team or not found_member:
+        return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员"}), 404
+
+    # 检查是否为所有者
+    if found_member.get('role') == 'account-owner':
+        return jsonify({"success": False, "error": "不能踢出团队所有者"}), 400
+
+    user_id = found_member.get('user_id') or found_member.get('id')
+
+    # 执行踢人
+    result = kick_member(found_team['access_token'], found_team['account_id'], user_id)
+
+    if result['success']:
+        # 记录日志
+        KickLog.create(
+            team_id=found_team['id'],
+            user_id=user_id,
+            email=email,
+            reason='管理员通过邮箱手动踢出',
+            success=True
+        )
+        return jsonify({
+            "success": True,
+            "message": f"已成功从 {found_team['name']} 踢出 {email}"
+        })
+    else:
+        KickLog.create(
+            team_id=found_team['id'],
+            user_id=user_id,
+            email=email,
+            reason='管理员通过邮箱手动踢出',
+            success=False,
+            error_message=result.get('error')
+        )
+        return jsonify({"success": False, "error": result.get('error')}), 500
 
 
 @app.route('/api/admin/auto-kick/config', methods=['GET'])

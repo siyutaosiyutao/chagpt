@@ -30,40 +30,20 @@
         h1 {
             color: #333;
             margin-bottom: 30px;
+            font-size: 32px;
             text-align: center;
-            font-size: 2.5em;
         }
 
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #e0e0e0;
+        h2 {
+            color: #555;
+            margin: 30px 0 20px 0;
+            font-size: 24px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
         }
 
-        .tab {
-            padding: 12px 24px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
-            color: #666;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s;
-        }
-
-        .tab.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-            font-weight: bold;
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
+        .section {
+            margin-bottom: 40px;
         }
 
         .form-group {
@@ -73,15 +53,14 @@
         label {
             display: block;
             margin-bottom: 8px;
-            color: #333;
+            color: #555;
             font-weight: 500;
         }
 
         input[type="text"],
         input[type="email"],
         input[type="number"],
-        textarea,
-        select {
+        textarea {
             width: 100%;
             padding: 12px;
             border: 2px solid #e0e0e0;
@@ -90,37 +69,46 @@
             transition: border-color 0.3s;
         }
 
-        input:focus,
-        textarea:focus,
-        select:focus {
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="number"]:focus,
+        textarea:focus {
             outline: none;
             border-color: #667eea;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+            cursor: pointer;
         }
 
         textarea {
             min-height: 100px;
             resize: vertical;
+            font-family: monospace;
         }
 
         .btn {
             padding: 12px 24px;
             border: none;
             border-radius: 8px;
-            cursor: pointer;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
+            cursor: pointer;
             transition: all 0.3s;
+            display: inline-block;
         }
 
         .btn-primary {
-            background: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
 
         .btn-primary:hover {
-            background: #5568d3;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
 
         .btn-secondary {
@@ -142,7 +130,7 @@
         }
 
         .btn-sm {
-            padding: 6px 12px;
+            padding: 8px 16px;
             font-size: 12px;
         }
 
@@ -162,7 +150,7 @@
 
         .team-card:hover {
             border-color: #667eea;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
 
         .team-header {
@@ -174,7 +162,11 @@
 
         .team-header h3 {
             color: #333;
-            font-size: 1.3em;
+            font-size: 18px;
+        }
+
+        .team-info {
+            margin-bottom: 15px;
         }
 
         .team-info p {
@@ -186,7 +178,6 @@
         .team-actions {
             display: flex;
             gap: 8px;
-            margin-top: 15px;
             flex-wrap: wrap;
         }
 
@@ -197,7 +188,7 @@
             color: white;
             border-radius: 12px;
             font-size: 12px;
-            font-weight: 500;
+            font-weight: 600;
         }
 
         .badge-owner {
@@ -220,7 +211,7 @@
             background: #f4f4f4;
             padding: 2px 6px;
             border-radius: 4px;
-            font-family: 'Courier New', monospace;
+            font-family: monospace;
             font-size: 12px;
         }
 
@@ -228,7 +219,7 @@
             background: #fff3cd;
             color: #856404;
             padding: 4px 8px;
-            font-weight: bold;
+            font-weight: 600;
         }
 
         .modal {
@@ -261,9 +252,9 @@
         }
 
         .close {
+            color: #aaa;
             font-size: 28px;
             font-weight: bold;
-            color: #aaa;
             cursor: pointer;
         }
 
@@ -271,7 +262,13 @@
             color: #000;
         }
 
-        .member-item, .key-item {
+        .members-list,
+        .keys-list {
+            margin-top: 20px;
+        }
+
+        .member-item,
+        .key-item {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             padding: 15px;
@@ -281,11 +278,13 @@
             align-items: center;
         }
 
-        .member-info, .key-info {
+        .member-info,
+        .key-info {
             flex: 1;
         }
 
-        .member-meta, .key-meta {
+        .member-meta,
+        .key-meta {
             display: flex;
             gap: 15px;
             margin-top: 5px;
@@ -313,34 +312,15 @@
         .log-table tr:hover {
             background: #f8f9fa;
         }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 ChatGPT Team 管理后台</h1>
+        <h1>🎯 ChatGPT Team 管理后台</h1>
 
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('teams')">📋 Teams 管理</button>
-            <button class="tab" onclick="switchTab('members')">👥 成员管理</button>
-            <button class="tab" onclick="switchTab('keys')">🔑 邀请码池</button>
-            <button class="tab" onclick="switchTab('config')">⚙️ 自动踢人配置</button>
-            <button class="tab" onclick="switchTab('logs')">📊 踢人日志</button>
-            <button class="tab" onclick="switchTab('invitations')">📧 邀请记录</button>
-        </div>
-
-        <!-- Teams 管理 -->
-        <div id="teamsTab" class="tab-content active">
-            <h2>添加新 Team</h2>
+        <!-- 添加 Team -->
+        <div class="section">
+            <h2>➕ 添加新 Team</h2>
             <form id="addTeamForm" onsubmit="addTeam(event)">
                 <div class="form-group">
                     <label>Team 名称:</label>
@@ -348,103 +328,117 @@
                 </div>
                 <div class="form-group">
                     <label>Session JSON (从浏览器复制):</label>
-                    <textarea name="session_data" required placeholder='{"user": {...}, "accessToken": "..."}'></textarea>
+                    <textarea name="session_data" required placeholder='{"user": {...}, "accessToken": "..."}' rows="6"></textarea>
                 </div>
-                <button type="submit" class="btn btn-primary">➕ 添加 Team</button>
+                <button type="submit" class="btn btn-primary">添加 Team</button>
             </form>
-
-            <hr style="margin: 30px 0;">
-
-            <h2>现有 Teams</h2>
-            <div id="teamsList"></div>
         </div>
 
-        <!-- 成员管理 -->
-        <div id="membersTab" class="tab-content">
-            <h2>快速邀请成员</h2>
-            <form id="quickInviteForm" onsubmit="quickInviteMember(event)">
+        <!-- 管理员邀请成员 (自动分配Team) -->
+        <div class="section">
+            <h2>➕ 管理员邀请成员</h2>
+            <p style="color: #666; margin-bottom: 15px;">系统将自动选择未满的 Team 进行邀请</p>
+            <form id="adminInviteForm" onsubmit="adminInviteAuto(event)">
                 <div class="form-group">
-                    <label>选择 Team:</label>
-                    <select id="quick_invite_team" required>
-                        <option value="">请选择 Team</option>
-                    </select>
+                    <label>成员邮箱:</label>
+                    <input type="email" id="admin_invite_email" name="email" placeholder="member@example.com" required>
                 </div>
                 <div class="form-group">
-                    <label>邮箱地址:</label>
-                    <input type="email" id="quick_invite_email" required placeholder="user@example.com">
+                    <label>
+                        <input type="checkbox" id="admin_invite_is_temp">
+                        1日临时邀请 (24小时后自动踢出,除非确认)
+                    </label>
                 </div>
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="quick_invite_is_temp">
-                    <label for="quick_invite_is_temp">临时邀请 (24小时后自动踢出)</label>
+                <div class="form-group" id="admin_temp_hours_group" style="display: none;">
+                    <label>临时时长 (小时):</label>
+                    <input type="number" id="admin_invite_temp_hours" value="24" min="1">
                 </div>
-                <button type="submit" class="btn btn-primary">📧 发送邀请</button>
+                <button type="submit" class="btn btn-primary">发送邀请</button>
             </form>
-
-            <hr style="margin: 30px 0;">
-
-            <h2>所有成员列表</h2>
-            <div id="allMembersList"></div>
         </div>
 
-        <!-- 邀请码池 -->
-        <div id="keysTab" class="tab-content">
-            <h2>生成新邀请码</h2>
-            <form id="globalCreateKeyForm" onsubmit="createGlobalInviteKey(event)">
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="global_key_is_temp">
-                    <label for="global_key_is_temp">1日邀请码 (24小时后自动踢出)</label>
-                </div>
+        <!-- 手动踢人 -->
+        <div class="section">
+            <h2>🚫 手动踢人</h2>
+            <p style="color: #666; margin-bottom: 15px;">系统将自动从所有 Team 中查找该成员并踢出</p>
+            <form id="manualKickForm" onsubmit="manualKickMember(event)">
                 <div class="form-group">
-                    <label>优先分配 Team (可选):</label>
-                    <select id="global_key_team">
-                        <option value="">自动选择可用 Team</option>
-                    </select>
-                    <small style="color: #666;">如不选择,系统将在使用时自动分配拥有空位的 Team</small>
+                    <label>成员邮箱:</label>
+                    <input type="email" id="kick_email" name="email" placeholder="member@example.com" required>
                 </div>
-                <div class="form-group">
-                    <label>生成数量:</label>
-                    <input type="number" id="global_key_count" min="1" max="100" value="1" required>
-                    <small style="color: #666;">一次最多生成 100 个邀请码</small>
-                </div>
-                <button type="submit" class="btn btn-primary">🔑 生成邀请码</button>
+                <button type="submit" class="btn btn-danger">踢出成员</button>
             </form>
-
-            <hr style="margin: 30px 0;">
-
-            <h2>邀请码列表</h2>
-            <div id="globalKeysList"></div>
         </div>
 
-        <!-- 自动踢人配置 -->
-        <div id="configTab" class="tab-content">
-            <h2>自动踢人配置</h2>
-            <form id="configForm" onsubmit="saveConfig(event)">
+        <!-- 邀请码管理 -->
+        <div class="section">
+            <h2>🔑 邀请码管理</h2>
+            <div style="margin-bottom: 20px;">
+                <form id="createKeyForm" onsubmit="createKeys(event)" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>生成数量:</label>
+                        <input type="number" id="key_count" name="count" value="1" min="1" max="20" style="width: 100px;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>
+                            <input type="checkbox" id="key_is_temp">
+                            1日试用邀请码 (24小时后自动踢出)
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">生成邀请码</button>
+                </form>
+            </div>
+            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
+                <button onclick="loadKeys()" class="btn btn-secondary">🔄 刷新</button>
+                <button onclick="copyAllNormalKeys()" class="btn btn-primary">📋 一键复制所有普通邀请码</button>
+                <button onclick="copyAllTempKeys()" class="btn btn-primary" style="background: #ff6b6b;">📋 一键复制所有1日试用码</button>
+            </div>
+            <div id="keysList">加载中...</div>
+        </div>
+
+        <!-- Auto-Kick 配置 -->
+        <div class="section">
+            <h2>⚙️ Auto-Kick 配置</h2>
+            <form id="autoKickConfigForm" onsubmit="saveAutoKickConfig(event)">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="auto_kick_enabled" name="enabled">
+                        启用自动踢人
+                    </label>
+                </div>
                 <div class="form-group">
                     <label>检测间隔 (秒):</label>
-                    <input type="number" id="check_interval" name="check_interval" min="60" value="300" required>
-                    <small style="color: #666;">建议 300 秒 (5分钟)</small>
+                    <input type="number" id="check_interval" name="check_interval" value="300" min="60">
                 </div>
                 <div class="form-group">
                     <label>运行时间段 (北京时间):</label>
-                    <input type="text" id="run_hours" name="run_hours" placeholder="例如: 0-23 或 9-18" required>
-                    <small style="color: #666;">格式: 开始小时-结束小时 (0-23)</small>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="number" id="start_hour" name="start_hour" value="0" min="0" max="23" style="width: 80px;">
+                        <span>时 至</span>
+                        <input type="number" id="end_hour" name="end_hour" value="23" min="0" max="23" style="width: 80px;">
+                        <span>时</span>
+                    </div>
                 </div>
-                <button type="submit" class="btn btn-primary">💾 保存配置</button>
+                <button type="submit" class="btn btn-primary">保存配置</button>
             </form>
+        </div>
 
-            <div id="currentConfig" style="margin-top: 30px;"></div>
+        <!-- Teams 列表 -->
+        <div class="section">
+            <h2>📋 Teams 列表</h2>
+            <div id="teamsList">加载中...</div>
         </div>
 
         <!-- 踢人日志 -->
-        <div id="logsTab" class="tab-content">
-            <h2>踢人日志</h2>
-            <div id="kickLogsList"></div>
+        <div class="section">
+            <h2>📜 踢人日志</h2>
+            <div id="kickLogsList">加载中...</div>
         </div>
 
         <!-- 邀请记录 -->
-        <div id="invitationsTab" class="tab-content">
-            <h2>邀请记录</h2>
-            <div id="invitationsList"></div>
+        <div class="section">
+            <h2>📨 邀请记录</h2>
+            <div id="invitationsList">加载中...</div>
         </div>
     </div>
 
@@ -456,53 +450,102 @@
                 <span class="close" onclick="closeMembersModal()">&times;</span>
             </div>
 
-            <div id="membersList"></div>
+            <div id="membersList">加载中...</div>
 
-            <hr style="margin: 20px 0;">
-
-            <h3>邀请新成员</h3>
+            <h3 style="margin-top: 30px;">➕ 邀请新成员</h3>
             <form id="inviteMemberForm" onsubmit="inviteMember(event)">
                 <input type="hidden" id="invite_team_id">
                 <div class="form-group">
                     <label>邮箱:</label>
                     <input type="email" id="invite_email" required>
                 </div>
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="invite_is_temp">
-                    <label for="invite_is_temp">临时邀请 (24小时后自动踢出)</label>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="invite_is_temp">
+                        1日临时邀请 (24小时后自动踢出,除非确认)
+                    </label>
                 </div>
-                <div class="form-group" id="tempHoursGroup" style="display:none;">
-                    <label>有效时长 (小时):</label>
+                <div class="form-group" id="temp_hours_group" style="display: none;">
+                    <label>临时时长 (小时):</label>
                     <input type="number" id="invite_temp_hours" value="24" min="1">
                 </div>
-                <button type="submit" class="btn btn-primary">📧 发送邀请</button>
+                <button type="submit" class="btn btn-primary">发送邀请</button>
             </form>
         </div>
     </div>
 
+
+
     <script>
         let currentTeamId = null;
-        let cachedTeams = [];
+        let allKeys = []; // 存储所有邀请码
 
-        // 加载全局邀请码列表
-        async function loadGlobalKeys() {
+        // 页面加载时初始化
+        window.onload = function() {
+            loadTeams();
+            loadKeys();
+            loadAutoKickConfig();
+            loadKickLogs();
+            loadInvitations();
+
+            // 监听临时邀请复选框 (成员管理弹窗中的)
+            document.getElementById('invite_is_temp').addEventListener('change', function() {
+                document.getElementById('temp_hours_group').style.display = this.checked ? 'block' : 'none';
+            });
+
+            // 监听临时邀请复选框 (管理员邀请表单中的)
+            document.getElementById('admin_invite_is_temp').addEventListener('change', function() {
+                document.getElementById('admin_temp_hours_group').style.display = this.checked ? 'block' : 'none';
+            });
+        };
+
+        // 添加 Team
+        async function addTeam(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+
+            try {
+                const response = await fetch('/api/admin/teams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: formData.get('name'),
+                        session_data: formData.get('session_data')
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Team 添加成功！');
+                    e.target.reset();
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 加载邀请码
+        async function loadKeys() {
             try {
                 const response = await fetch('/api/admin/keys');
                 const data = await response.json();
 
                 if (data.success) {
-                    displayGlobalKeys(data.keys);
-                } else {
-                    document.getElementById('globalKeysList').innerHTML = '<p>加载失败: ' + data.error + '</p>';
+                    allKeys = data.keys; // 保存到全局变量
+                    displayKeys(data.keys);
                 }
             } catch (error) {
-                document.getElementById('globalKeysList').innerHTML = '<p>加载失败: ' + error.message + '</p>';
+                console.error('加载邀请码失败:', error);
             }
         }
 
-        // 显示全局邀请码列表
-        function displayGlobalKeys(keys) {
-            const container = document.getElementById('globalKeysList');
+        // 显示邀请码列表
+        function displayKeys(keys) {
+            const container = document.getElementById('keysList');
 
             if (!keys || keys.length === 0) {
                 container.innerHTML = '<p>暂无邀请码</p>';
@@ -519,7 +562,7 @@
                             <div>
                                 <code class="key-code">${key.key_code}</code>
                                 <div style="margin-top: 8px;">
-                                    ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
+                                    ${key.is_temp ? '<span class="badge badge-temp">1日试用</span>' : '<span class="badge">永久</span>'}
                                     <span class="badge">使用 ${key.usage_count} 次</span>
                                 </div>
                                 <div class="key-meta">
@@ -530,7 +573,7 @@
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
-                            <button onclick="deleteKey(${key.id}, true)" class="btn btn-danger btn-sm">🗑️ 删除</button>
+                            <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">🗑️ 删除</button>
                         </div>
                     </div>
                 `;
@@ -540,42 +583,40 @@
             container.innerHTML = html;
         }
 
-        // 生成全局邀请码
-        async function createGlobalInviteKey(e) {
+        // 生成邀请码
+        async function createKeys(e) {
             e.preventDefault();
 
-            const isTemp = document.getElementById('global_key_is_temp').checked;
-            const teamId = document.getElementById('global_key_team').value;
-            const count = parseInt(document.getElementById('global_key_count').value) || 1;
+            const count = parseInt(document.getElementById('key_count').value) || 1;
+            const isTemp = document.getElementById('key_is_temp').checked;
 
             try {
                 const response = await fetch('/api/admin/keys', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        count: count,
                         is_temp: isTemp,
-                        temp_hours: 24,
-                        team_id: teamId || null,
-                        count: count
+                        temp_hours: isTemp ? 24 : 0
                     })
                 });
 
                 const data = await response.json();
 
                 if (data.success) {
-                    if (count === 1) {
-                        // 单个生成
-                        alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
-                        navigator.clipboard.writeText(data.key_code);
+                    // 自动复制生成的邀请码
+                    if (data.keys && data.keys.length > 0) {
+                        const keyCodes = data.keys.map(k => k.key_code).join('\n');
+                        navigator.clipboard.writeText(keyCodes).then(() => {
+                            alert(`✅ 成功生成 ${count} 个邀请码并已复制到剪贴板！`);
+                        }).catch(err => {
+                            alert(`成功生成 ${count} 个邀请码，但复制失败: ${err}`);
+                        });
                     } else {
-                        // 批量生成
-                        const keysText = data.keys.join('\n');
-                        alert(`成功生成 ${count} 个邀请码！\n\n${keysText}\n\n已复制到剪贴板`);
-                        navigator.clipboard.writeText(keysText);
+                        alert(`成功生成 ${count} 个邀请码！`);
                     }
-                    document.getElementById('globalCreateKeyForm').reset();
-                    loadGlobalKeys();
-                    loadTeams();
+                    document.getElementById('createKeyForm').reset();
+                    loadKeys();
                 } else {
                     alert('错误: ' + data.error);
                 }
@@ -584,129 +625,117 @@
             }
         }
 
-        // 页面加载时初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            loadTeams();
-            loadGlobalKeys();
-            loadConfig();
-            loadKickLogs();
-            loadInvitations();
-
-            // 临时邀请复选框事件
-            document.getElementById('invite_is_temp').addEventListener('change', function() {
-                document.getElementById('tempHoursGroup').style.display = this.checked ? 'block' : 'none';
+        // 复制单个邀请码
+        function copyKey(keyCode) {
+            navigator.clipboard.writeText(keyCode).then(() => {
+                alert('✅ 邀请码已复制到剪贴板');
+            }).catch(err => {
+                alert('❌ 复制失败: ' + err);
             });
-        });
-
-        // 切换标签页
-        function switchTab(tabName) {
-            // 隐藏所有标签内容
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-
-            // 显示选中的标签
-            document.getElementById(tabName + 'Tab').classList.add('active');
-            event.target.classList.add('active');
-
-            // 重新加载数据
-            if (tabName === 'members') {
-                loadAllMembers();
-                // 加载 Team 选项
-                fetch('/api/admin/teams')
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.success) {
-                            const select = document.getElementById('quick_invite_team');
-                            select.innerHTML = '<option value="">请选择 Team</option>';
-                            data.teams.forEach(team => {
-                                select.innerHTML += `<option value="${team.id}">${team.name}</option>`;
-                            });
-                        }
-                    });
-            }
-            if (tabName === 'keys') loadGlobalKeys();
-            if (tabName === 'logs') loadKickLogs();
-            if (tabName === 'invitations') loadInvitations();
         }
 
-        // 添加 Team
-        async function addTeam(e) {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData);
+        // 一键复制所有普通邀请码
+        function copyAllNormalKeys() {
+            const normalKeys = allKeys.filter(key => !key.is_temp);
+
+            if (normalKeys.length === 0) {
+                alert('⚠️ 没有普通邀请码');
+                return;
+            }
+
+            const keyCodes = normalKeys.map(key => key.key_code).join('\n');
+
+            navigator.clipboard.writeText(keyCodes).then(() => {
+                alert(`✅ 已复制 ${normalKeys.length} 个普通邀请码到剪贴板`);
+            }).catch(err => {
+                alert('❌ 复制失败: ' + err);
+            });
+        }
+
+        // 一键复制所有1日试用邀请码
+        function copyAllTempKeys() {
+            const tempKeys = allKeys.filter(key => key.is_temp);
+
+            if (tempKeys.length === 0) {
+                alert('⚠️ 没有1日试用邀请码');
+                return;
+            }
+
+            const keyCodes = tempKeys.map(key => key.key_code).join('\n');
+
+            navigator.clipboard.writeText(keyCodes).then(() => {
+                alert(`✅ 已复制 ${tempKeys.length} 个1日试用邀请码到剪贴板`);
+            }).catch(err => {
+                alert('❌ 复制失败: ' + err);
+            });
+        }
+
+        // 删除邀请码
+        async function deleteKey(keyId) {
+            if (!confirm('确定要删除这个邀请码吗？')) return;
 
             try {
-                const response = await fetch('/api/admin/teams', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
+                const response = await fetch(`/api/admin/keys/${keyId}`, {
+                    method: 'DELETE'
                 });
 
-                const result = await response.json();
+                const data = await response.json();
 
-                if (result.success) {
-                    alert('Team 添加成功！');
-                    e.target.reset();
-                    loadTeams();
+                if (data.success) {
+                    alert('邀请码已删除');
+                    loadKeys();
                 } else {
-                    alert('错误: ' + result.error);
+                    alert('错误: ' + data.error);
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);
             }
         }
 
-        // 保存配置
-        async function saveConfig(e) {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData);
-
-            try {
-                const response = await fetch('/api/admin/auto-kick/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    alert('配置保存成功！');
-                    loadConfig();
-                } else {
-                    alert('错误: ' + result.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        // 加载配置
-        async function loadConfig() {
+        // 加载 Auto-Kick 配置
+        async function loadAutoKickConfig() {
             try {
                 const response = await fetch('/api/admin/auto-kick/config');
                 const data = await response.json();
 
                 if (data.success && data.config) {
+                    document.getElementById('auto_kick_enabled').checked = data.config.enabled;
                     document.getElementById('check_interval').value = data.config.check_interval;
-                    document.getElementById('run_hours').value = data.config.run_hours;
-
-                    document.getElementById('currentConfig').innerHTML = `
-                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px;">
-                            <h3>当前配置</h3>
-                            <p><strong>检测间隔:</strong> ${data.config.check_interval} 秒</p>
-                            <p><strong>运行时间:</strong> ${data.config.run_hours} (北京时间)</p>
-                            <p><strong>更新时间:</strong> ${new Date(data.config.updated_at).toLocaleString('zh-CN')}</p>
-                        </div>
-                    `;
+                    document.getElementById('start_hour').value = data.config.start_hour;
+                    document.getElementById('end_hour').value = data.config.end_hour;
                 }
             } catch (error) {
                 console.error('加载配置失败:', error);
+            }
+        }
+
+        // 保存 Auto-Kick 配置
+        async function saveAutoKickConfig(e) {
+            e.preventDefault();
+
+            const config = {
+                enabled: document.getElementById('auto_kick_enabled').checked,
+                check_interval: parseInt(document.getElementById('check_interval').value),
+                start_hour: parseInt(document.getElementById('start_hour').value),
+                end_hour: parseInt(document.getElementById('end_hour').value)
+            };
+
+            try {
+                const response = await fetch('/api/admin/auto-kick/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('配置保存成功！');
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
             }
         }
 
@@ -717,12 +746,82 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    cachedTeams = data.teams;
                     displayTeams(data.teams);
-                    renderKeyTeamOptions();
                 }
             } catch (error) {
                 console.error('加载 Teams 失败:', error);
+            }
+        }
+
+        // 管理员自动邀请成员
+        async function adminInviteAuto(e) {
+            e.preventDefault();
+
+            const email = document.getElementById('admin_invite_email').value.trim();
+            const isTemp = document.getElementById('admin_invite_is_temp').checked;
+            const tempHours = parseInt(document.getElementById('admin_invite_temp_hours').value) || 24;
+
+            if (!email) {
+                alert('请输入邮箱');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/invite-auto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email,
+                        is_temp: isTemp,
+                        temp_hours: tempHours
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('adminInviteForm').reset();
+                    loadInvitations();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 手动踢人
+        async function manualKickMember(e) {
+            e.preventDefault();
+
+            const email = document.getElementById('kick_email').value.trim();
+
+            if (!email) {
+                alert('请输入邮箱');
+                return;
+            }
+
+            if (!confirm(`确定要踢出 ${email} 吗？`)) return;
+
+            try {
+                const response = await fetch('/api/admin/kick-by-email-auto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('manualKickForm').reset();
+                    loadKickLogs();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
             }
         }
 
@@ -748,8 +847,6 @@
                             <p><strong>邮箱:</strong> ${team.email || '未设置'}</p>
                             <p><strong>Account ID:</strong> <code>${team.account_id}</code></p>
                             <p><strong>Organization ID:</strong> <code>${team.organization_id || '无'}</code></p>
-                            <p><strong>已绑定邀请码:</strong> ${team.total_keys} 个</p>
-                            <p><strong>可用名额:</strong> ${team.available_slots} 人</p>
                             <p><strong>创建时间:</strong> ${new Date(team.created_at).toLocaleString('zh-CN')}</p>
                         </div>
                         <div class="team-actions">
@@ -763,25 +860,6 @@
 
             html += '</div>';
             container.innerHTML = html;
-        }
-
-        function renderKeyTeamOptions() {
-            const select = document.getElementById('global_key_team');
-            if (!select) return;
-
-            const previousValue = select.value;
-            select.innerHTML = '<option value="">自动选择可用 Team</option>';
-
-            cachedTeams.forEach(team => {
-                const option = document.createElement('option');
-                option.value = team.id;
-                option.textContent = `${team.name} (${team.member_count}/4 人)`;
-                select.appendChild(option);
-            });
-
-            if (previousValue && [...select.options].some(opt => opt.value === previousValue)) {
-                select.value = previousValue;
-            }
         }
 
         // 显示成员管理弹窗
@@ -899,36 +977,7 @@
             document.getElementById('membersModal').style.display = 'none';
         }
 
-        // 复制邀请码
-        function copyKey(keyCode) {
-            navigator.clipboard.writeText(keyCode);
-            alert('邀请码已复制到剪贴板！');
-        }
 
-        // 删除邀请码
-        async function deleteKey(keyId, reloadGlobal = false) {
-            if (!confirm('确定要删除这个邀请码吗？')) return;
-
-            try {
-                const response = await fetch(`/api/admin/keys/${keyId}`, {
-                    method: 'DELETE'
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert('邀请码已删除');
-                    if (reloadGlobal) {
-                        loadGlobalKeys();
-                    }
-                    loadTeams();
-                } else {
-                    alert('错误: ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
 
         // 更新 Token
         async function updateToken(teamId) {
@@ -1041,23 +1090,36 @@
                 return;
             }
 
-            let html = '<table class="log-table"><thead><tr><th>时间</th><th>Team</th><th>邮箱</th><th>类型</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+            let html = '<table class="log-table"><thead><tr><th>时间</th><th>Team</th><th>邮箱</th><th>类型</th><th>过期时间</th><th>状态</th><th>操作</th></tr></thead><tbody>';
 
             invitations.forEach(inv => {
                 const isTemp = inv.is_temp;
                 const isConfirmed = inv.is_confirmed;
                 const expireAt = inv.temp_expire_at;
+                const invStatus = inv.status === 'success' ? 'success' : 'failed';
+
+                // 判断是否已过期
+                const isExpired = expireAt && new Date(expireAt) < new Date();
 
                 html += `
                     <tr>
                         <td>${new Date(inv.created_at).toLocaleString('zh-CN')}</td>
                         <td>${inv.team_name}</td>
                         <td>${inv.email}</td>
-                        <td>${isTemp ? '<span class="badge badge-temp">临时</span>' : '<span class="badge">永久</span>'}</td>
-                        <td>${inv.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-error">失败</span>'}</td>
                         <td>
-                            ${isTemp && !isConfirmed ? `<button onclick="confirmInvitation(${inv.id})" class="btn btn-primary btn-sm">✅ 确认</button>` : ''}
-                            ${isTemp && expireAt ? `<small>过期: ${new Date(expireAt).toLocaleString('zh-CN')}</small>` : ''}
+                            ${isTemp ? '<span class="badge badge-temp">1日试用</span>' : '<span class="badge">永久</span>'}
+                            ${isTemp && isConfirmed ? '<span class="badge badge-success">已确认</span>' : ''}
+                        </td>
+                        <td>
+                            ${expireAt ? new Date(expireAt).toLocaleString('zh-CN') : '-'}
+                            ${isExpired ? '<br><span class="badge badge-error">已过期</span>' : ''}
+                        </td>
+                        <td>${invStatus === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-error">失败</span>'}</td>
+                        <td>
+                            ${isTemp && !isConfirmed && invStatus === 'success' ?
+                                `<button onclick="confirmInvitation(${inv.id})" class="btn btn-primary btn-sm">✅ 取消自动踢出</button>` :
+                                (isTemp && isConfirmed ? '<span style="color: #28a745;">✓ 已取消踢出</span>' : '-')
+                            }
                         </td>
                     </tr>
                 `;
@@ -1065,133 +1127,6 @@
 
             html += '</tbody></table>';
             container.innerHTML = html;
-        }
-
-        // 快速邀请成员
-        async function quickInviteMember(e) {
-            e.preventDefault();
-
-            const teamId = document.getElementById('quick_invite_team').value;
-            const email = document.getElementById('quick_invite_email').value;
-            const isTemp = document.getElementById('quick_invite_is_temp').checked;
-
-            try {
-                const response = await fetch(`/api/admin/teams/${teamId}/invite`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        email: email,
-                        is_temp: isTemp,
-                        temp_hours: 24
-                    })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert(`✅ ${data.message}\n\n请通知用户查收邮件并确认加入。`);
-                    document.getElementById('quickInviteForm').reset();
-                    loadAllMembers();
-                    loadInvitations();
-                } else {
-                    alert('❌ ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        // 加载所有成员列表
-        async function loadAllMembers() {
-            try {
-                const teamsResponse = await fetch('/api/admin/teams');
-                const teamsData = await teamsResponse.json();
-
-                if (!teamsData.success) {
-                    document.getElementById('allMembersList').innerHTML = '<p>加载失败</p>';
-                    return;
-                }
-
-                const teams = teamsData.teams;
-                let html = '';
-
-                for (const team of teams) {
-                    try {
-                        const membersResponse = await fetch(`/api/admin/teams/${team.id}/members`);
-                        const membersData = await membersResponse.json();
-
-                        if (membersData.success && membersData.members.length > 0) {
-                            html += `
-                                <div class="card" style="margin-bottom: 20px;">
-                                    <h3>${team.name} (${membersData.members.length}/4 人)</h3>
-                                    <table class="table">
-                                        <thead>
-                                            <tr>
-                                                <th>邮箱</th>
-                                                <th>角色</th>
-                                                <th>加入时间</th>
-                                                <th>操作</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                            `;
-
-                            membersData.members.forEach(member => {
-                                const canKick = member.role !== 'account-owner';
-                                html += `
-                                    <tr>
-                                        <td>${member.email}</td>
-                                        <td>${member.role === 'account-owner' ? '👑 所有者' : '👤 成员'}</td>
-                                        <td>${member.added_at ? new Date(member.added_at).toLocaleString('zh-CN') : '-'}</td>
-                                        <td>
-                                            ${canKick ? `<button onclick="kickMemberFromList(${team.id}, '${member.user_id}', '${member.email}')" class="btn btn-danger btn-sm">🚫 踢出</button>` : '-'}
-                                        </td>
-                                    </tr>
-                                `;
-                            });
-
-                            html += `
-                                        </tbody>
-                                    </table>
-                                </div>
-                            `;
-                        }
-                    } catch (error) {
-                        console.error(`加载 ${team.name} 成员失败:`, error);
-                    }
-                }
-
-                if (!html) {
-                    html = '<p style="color: #666;">暂无成员数据</p>';
-                }
-
-                document.getElementById('allMembersList').innerHTML = html;
-            } catch (error) {
-                document.getElementById('allMembersList').innerHTML = '<p>加载失败: ' + error.message + '</p>';
-            }
-        }
-
-        // 从列表踢出成员
-        async function kickMemberFromList(teamId, userId, email) {
-            if (!confirm(`确定要踢出 ${email} 吗？`)) return;
-
-            try {
-                const response = await fetch(`/api/admin/teams/${teamId}/members/${userId}`, {
-                    method: 'DELETE'
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert('✅ 成员已踢出');
-                    loadAllMembers();
-                    loadTeams();
-                } else {
-                    alert('❌ ' + data.error);
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
         }
 
         // 确认邀请
@@ -1225,3 +1160,4 @@
     </script>
 </body>
 </html>
+
