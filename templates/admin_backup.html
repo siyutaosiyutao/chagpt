@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员后台</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>🎯 ChatGPT Team 管理后台</h1>
+            <button onclick="logout()" class="btn btn-secondary">退出登录</button>
+        </header>
+        
+        <div class="admin-content">
+            <!-- 添加 Team -->
+            <div class="card">
+                <h2>➕ 添加新 Team</h2>
+                <form id="addTeamForm">
+                    <div class="form-group">
+                        <label for="team_name">Team 名称（可选）</label>
+                        <input type="text" id="team_name" placeholder="留空则使用邮箱作为名称">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="session_json">Session JSON</label>
+                        <textarea id="session_json" rows="8" placeholder='粘贴从 https://chatgpt.com/api/auth/session 获取的 JSON' required></textarea>
+                        <small>💡 使用油猴脚本可自动上传</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">创建 Team</button>
+                </form>
+            </div>
+            
+            <!-- 自动踢人配置 -->
+            <div class="card">
+                <h2>🤖 自动踢人配置</h2>
+                <form id="autoKickForm">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="auto_kick_enabled">
+                            启用自动检测踢人
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="check_interval_min">检测间隔 (秒)</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="number" id="check_interval_min" min="30" max="300" placeholder="最小值" style="width: 100px;">
+                            <span>-</span>
+                            <input type="number" id="check_interval_max" min="30" max="300" placeholder="最大值" style="width: 100px;">
+                            <small>建议: 90-120 秒</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="start_time">运行时间 (北京时间)</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="time" id="start_time" style="width: 120px;">
+                            <span>-</span>
+                            <input type="time" id="end_time" style="width: 120px;">
+                            <small>例如: 09:00 - 22:00</small>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button type="submit" class="btn btn-primary">💾 保存配置</button>
+                        <button type="button" onclick="checkNow()" class="btn btn-secondary">🔍 立即检测一次</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 邀请码管理 -->
+            <div class="card">
+                <h2>🔑 邀请码管理</h2>
+                <div style="margin-bottom: 20px;">
+                    <form id="createKeyForm" style="display: flex; gap: 15px; align-items: flex-end;">
+                        <div class="form-group" style="margin: 0;">
+                            <label>
+                                <input type="checkbox" id="key_is_temp">
+                                1日邀请码 (24小时后自动踢出)
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-primary">生成邀请码</button>
+                    </form>
+                </div>
+                <button onclick="loadKeys()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="keysList"></div>
+            </div>
+
+            <!-- Teams 列表 -->
+            <div class="card">
+                <h2>📋 Teams 列表</h2>
+                <button onclick="loadTeams()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="teamsList"></div>
+            </div>
+
+            <!-- 踢人日志 -->
+            <div class="card">
+                <h2>📜 踢人日志</h2>
+                <button onclick="loadKickLogs()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="kickLogsList"></div>
+            </div>
+            
+            <!-- 邀请记录 -->
+            <div class="card">
+                <h2>📨 邀请记录</h2>
+                <button onclick="loadInvitations()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="invitationsList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 成员管理弹窗 -->
+    <div id="membersModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeMembersModal()">&times;</span>
+            <h2 id="membersModalTitle">👥 成员管理</h2>
+            
+            <!-- 邀请新成员 -->
+            <div style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+                <h3>➕ 邀请新成员</h3>
+                <form id="inviteMemberForm" onsubmit="inviteMember(event)">
+                    <input type="hidden" id="invite_team_id">
+                    <div class="form-group">
+                        <label for="invite_email">邮箱</label>
+                        <input type="email" id="invite_email" required placeholder="user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="invite_is_temp">
+                            临时邀请 (到期自动踢出)
+                        </label>
+                    </div>
+                    <div class="form-group" id="temp_hours_group" style="display: none;">
+                        <label for="invite_temp_hours">有效时长 (小时)</label>
+                        <input type="number" id="invite_temp_hours" min="1" max="168" value="24" style="width: 100px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary">发送邀请</button>
+                </form>
+            </div>
+            
+            <!-- 当前成员列表 -->
+            <div id="membersList"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentTeamId = null;
+
+        // 页面加载时初始化
+        window.onload = function() {
+            loadAutoKickConfig();
+            loadKeys();
+            loadTeams();
+            loadKickLogs();
+            loadInvitations();
+
+            // 临时邀请复选框事件
+            document.getElementById('invite_is_temp').addEventListener('change', function() {
+                document.getElementById('temp_hours_group').style.display = this.checked ? 'block' : 'none';
+            });
+
+            // 邀请码表单提交
+            document.getElementById('createKeyForm').addEventListener('submit', createKey);
+        };
+
+        // 退出登录
+        function logout() {
+            fetch('/api/admin/logout', { method: 'POST' })
+                .then(() => window.location.reload());
+        }
+
+        // 添加 Team
+        document.getElementById('addTeamForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('team_name').value.trim();
+            const sessionJson = document.getElementById('session_json').value.trim();
+            
+            try {
+                const response = await fetch('/api/admin/teams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, session_data: sessionJson })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(data.message || 'Team 创建成功！');
+                    document.getElementById('addTeamForm').reset();
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        });
+
+        // 加载自动踢人配置
+        async function loadAutoKickConfig() {
+            try {
+                const response = await fetch('/api/admin/auto-kick/config');
+                const data = await response.json();
+                
+                if (data.success && data.config) {
+                    const config = data.config;
+                    document.getElementById('auto_kick_enabled').checked = config.enabled;
+                    document.getElementById('check_interval_min').value = config.check_interval_min;
+                    document.getElementById('check_interval_max').value = config.check_interval_max;
+                    document.getElementById('start_time').value = config.start_time;
+                    document.getElementById('end_time').value = config.end_time;
+                }
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+
+        // 保存自动踢人配置
+        document.getElementById('autoKickForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const config = {
+                enabled: document.getElementById('auto_kick_enabled').checked,
+                check_interval_min: parseInt(document.getElementById('check_interval_min').value),
+                check_interval_max: parseInt(document.getElementById('check_interval_max').value),
+                start_time: document.getElementById('start_time').value,
+                end_time: document.getElementById('end_time').value
+            };
+            
+            try {
+                const response = await fetch('/api/admin/auto-kick/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('配置保存成功！');
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        });
+
+        // 立即检测
+        async function checkNow() {
+            try {
+                const response = await fetch('/api/admin/auto-kick/check-now', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('检测任务已启动，请稍后查看日志');
+                    setTimeout(loadKickLogs, 3000);
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 加载 Teams
+        async function loadTeams() {
+            try {
+                const response = await fetch('/api/admin/teams');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayTeams(data.teams);
+                }
+            } catch (error) {
+                console.error('加载 Teams 失败:', error);
+            }
+        }
+
+        // 显示 Teams
+        function displayTeams(teams) {
+            const container = document.getElementById('teamsList');
+
+            if (teams.length === 0) {
+                container.innerHTML = '<p>暂无 Team</p>';
+                return;
+            }
+
+            let html = '<div class="teams-grid">';
+
+            teams.forEach(team => {
+                html += `
+                    <div class="team-card">
+                        <div class="team-header">
+                            <h3>${team.name}</h3>
+                            <span class="badge">${team.member_count}/4 人</span>
+                        </div>
+                        <div class="team-info">
+                            <p><strong>邮箱:</strong> ${team.email || '未设置'}</p>
+                            <p><strong>Account ID:</strong> <code>${team.account_id}</code></p>
+                            <p><strong>Organization ID:</strong> <code>${team.organization_id || '无'}</code></p>
+                            <p><strong>创建时间:</strong> ${new Date(team.created_at).toLocaleString('zh-CN')}</p>
+                        </div>
+                        <div class="team-actions">
+                            <button onclick="showMembers(${team.id}, '${team.name}')" class="btn btn-primary btn-sm">👥 成员管理</button>
+                            <button onclick="updateToken(${team.id})" class="btn btn-secondary btn-sm">🔄 更新Token</button>
+                            <button onclick="deleteTeam(${team.id}, '${team.name}')" class="btn btn-danger btn-sm">🗑️ 删除</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 显示成员管理弹窗
+        async function showMembers(teamId, teamName) {
+            currentTeamId = teamId;
+            document.getElementById('membersModalTitle').textContent = `👥 ${teamName} - 成员管理`;
+            document.getElementById('invite_team_id').value = teamId;
+            document.getElementById('membersModal').style.display = 'block';
+
+            // 加载成员列表
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}/members`);
+                const data = await response.json();
+
+                if (data.success) {
+                    displayMembers(data.members);
+                } else {
+                    document.getElementById('membersList').innerHTML = '<p>加载失败: ' + data.error + '</p>';
+                }
+            } catch (error) {
+                document.getElementById('membersList').innerHTML = '<p>加载失败: ' + error.message + '</p>';
+            }
+        }
+
+        // 显示成员列表
+        function displayMembers(members) {
+            const container = document.getElementById('membersList');
+
+            if (!members || members.length === 0) {
+                container.innerHTML = '<p>暂无成员</p>';
+                return;
+            }
+
+            let html = '<h3>当前成员</h3><div class="members-list">';
+
+            members.forEach(member => {
+                const isOwner = member.role === 'account-owner';
+                html += `
+                    <div class="member-item">
+                        <div class="member-info">
+                            <strong>${member.email || member.name || 'Unknown'}</strong>
+                            <span class="badge ${isOwner ? 'badge-owner' : ''}">${isOwner ? '所有者' : '成员'}</span>
+                        </div>
+                        <div class="member-meta">
+                            <small>User ID: ${member.user_id}</small>
+                            <small>加入时间: ${new Date(member.created_at).toLocaleString('zh-CN')}</small>
+                        </div>
+                        ${!isOwner ? `<button onclick="kickMember('${member.user_id}', '${member.email}')" class="btn btn-danger btn-sm">踢出</button>` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 邀请成员
+        async function inviteMember(e) {
+            e.preventDefault();
+
+            const teamId = document.getElementById('invite_team_id').value;
+            const email = document.getElementById('invite_email').value.trim();
+            const isTemp = document.getElementById('invite_is_temp').checked;
+            const tempHours = parseInt(document.getElementById('invite_temp_hours').value) || 24;
+
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}/invite`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, is_temp: isTemp, temp_hours: tempHours })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('inviteMemberForm').reset();
+                    showMembers(teamId, document.getElementById('membersModalTitle').textContent.split(' - ')[0].substring(2));
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 踢出成员
+        async function kickMember(userId, email) {
+            if (!confirm(`确定要踢出 ${email} 吗？`)) return;
+
+            try {
+                const response = await fetch(`/api/admin/teams/${currentTeamId}/members/${userId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('成员已踢出');
+                    showMembers(currentTeamId, document.getElementById('membersModalTitle').textContent.split(' - ')[0].substring(2));
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 关闭成员管理弹窗
+        function closeMembersModal() {
+            document.getElementById('membersModal').style.display = 'none';
+        }
+
+        // 加载所有邀请码
+        async function loadKeys() {
+            try {
+                const response = await fetch('/api/admin/keys');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayKeys(data.keys);
+                }
+            } catch (error) {
+                console.error('加载邀请码失败:', error);
+            }
+        }
+
+        // 显示邀请码列表
+        function displayKeys(keys) {
+            const container = document.getElementById('keysList');
+
+            if (!keys || keys.length === 0) {
+                container.innerHTML = '<p>暂无邀请码</p>';
+                return;
+            }
+
+            let html = '<div class="keys-list">';
+
+            keys.forEach(key => {
+                html += `
+                    <div class="key-item">
+                        <div class="key-info">
+                            <code class="key-code">${key.key_code}</code>
+                            ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
+                            <span class="badge">已使用 ${key.usage_count} 次</span>
+                        </div>
+                        <div class="key-meta">
+                            <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
+                        </div>
+                        <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
+                        <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">🗑️ 删除</button>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 生成邀请码
+        async function createKey(e) {
+            e.preventDefault();
+
+            const isTemp = document.getElementById('key_is_temp').checked;
+
+            try {
+                const response = await fetch('/api/admin/keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_temp: isTemp, temp_hours: 24 })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
+                    navigator.clipboard.writeText(data.key_code);
+                    document.getElementById('createKeyForm').reset();
+                    loadKeys();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 复制邀请码
+        function copyKey(keyCode) {
+            navigator.clipboard.writeText(keyCode);
+            alert('邀请码已复制到剪贴板！');
+        }
+
+        // 删除邀请码
+        async function deleteKey(keyId) {
+            if (!confirm('确定要删除这个邀请码吗？')) return;
+
+            try {
+                const response = await fetch(`/api/admin/keys/${keyId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('邀请码已删除');
+                    loadKeys();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 更新 Token
+        async function updateToken(teamId) {
+            const sessionJson = prompt('请粘贴新的 Session JSON:');
+            if (!sessionJson) return;
+
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}/token`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_data: sessionJson })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Token 更新成功！');
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 删除 Team
+        async function deleteTeam(teamId, teamName) {
+            if (!confirm(`确定要删除 Team "${teamName}" 吗？此操作不可恢复！`)) return;
+
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Team 删除成功！');
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 加载踢人日志
+        async function loadKickLogs() {
+            try {
+                const response = await fetch('/api/admin/auto-kick/logs');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayKickLogs(data.logs);
+                }
+            } catch (error) {
+                console.error('加载日志失败:', error);
+            }
+        }
+
+        // 显示踢人日志
+        function displayKickLogs(logs) {
+            const container = document.getElementById('kickLogsList');
+
+            if (logs.length === 0) {
+                container.innerHTML = '<p>暂无日志</p>';
+                return;
+            }
+
+            let html = '<table class="log-table"><thead><tr><th>时间</th><th>Team</th><th>邮箱</th><th>原因</th><th>状态</th></tr></thead><tbody>';
+
+            logs.forEach(log => {
+                html += `
+                    <tr>
+                        <td>${new Date(log.created_at).toLocaleString('zh-CN')}</td>
+                        <td>${log.team_name}</td>
+                        <td>${log.email}</td>
+                        <td>${log.reason}</td>
+                        <td>${log.success ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-error">失败</span>'}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // 加载邀请记录
+        async function loadInvitations() {
+            try {
+                const response = await fetch('/api/admin/invitations');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayInvitations(data.invitations);
+                }
+            } catch (error) {
+                console.error('加载邀请记录失败:', error);
+            }
+        }
+
+        // 显示邀请记录
+        function displayInvitations(invitations) {
+            const container = document.getElementById('invitationsList');
+
+            if (invitations.length === 0) {
+                container.innerHTML = '<p>暂无邀请记录</p>';
+                return;
+            }
+
+            let html = '<table class="log-table"><thead><tr><th>时间</th><th>Team</th><th>邮箱</th><th>类型</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+
+            invitations.forEach(inv => {
+                const isTemp = inv.is_temp;
+                const isConfirmed = inv.is_confirmed;
+                const expireAt = inv.temp_expire_at;
+
+                html += `
+                    <tr>
+                        <td>${new Date(inv.created_at).toLocaleString('zh-CN')}</td>
+                        <td>${inv.team_name}</td>
+                        <td>${inv.email}</td>
+                        <td>${isTemp ? '<span class="badge badge-temp">临时</span>' : '<span class="badge">永久</span>'}</td>
+                        <td>${inv.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-error">失败</span>'}</td>
+                        <td>
+                            ${isTemp && !isConfirmed ? `<button onclick="confirmInvitation(${inv.id})" class="btn btn-primary btn-sm">✅ 确认</button>` : ''}
+                            ${isTemp && expireAt ? `<small>过期: ${new Date(expireAt).toLocaleString('zh-CN')}</small>` : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // 确认邀请
+        async function confirmInvitation(invitationId) {
+            if (!confirm('确认该邀请后，将不会自动踢出该成员。确定吗？')) return;
+
+            try {
+                const response = await fetch(`/api/admin/invitations/${invitationId}/confirm`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(data.message);
+                    loadInvitations();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 点击弹窗外部关闭
+        window.onclick = function(event) {
+            if (event.target.className === 'modal') {
+                event.target.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
+

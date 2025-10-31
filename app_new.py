@@ -1,0 +1,644 @@
+"""
+ChatGPT Team 自动邀请系统 - 主应用
+"""
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+from curl_cffi import requests as cf_requests
+import json
+from functools import wraps
+from database import init_db, Team, AccessKey, Invitation, AutoKickConfig, KickLog, LoginAttempt
+from datetime import datetime, timedelta
+import pytz
+from config import *
+from auto_kick_service import auto_kick_service
+
+app = Flask(__name__)
+app.secret_key = SECRET_KEY
+
+# 初始化数据库
+init_db()
+
+
+def admin_required(f):
+    """管理员权限装饰器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_admin'):
+            return jsonify({"error": "需要管理员权限"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def invite_to_team(access_token, account_id, email):
+    """调用 ChatGPT API 邀请成员"""
+    url = f"https://chatgpt.com/backend-api/accounts/{account_id}/invites"
+    
+    headers = {
+        "accept": "*/*",
+        "accept-language": "zh-CN,zh;q=0.9",
+        "authorization": f"Bearer {access_token}",
+        "chatgpt-account-id": account_id,
+        "content-type": "application/json",
+        "oai-device-id": "a9c9e9a0-f72d-4fbc-800e-2d0e1e3c3b54",
+        "oai-language": "zh-CN",
+        "origin": "https://chatgpt.com",
+        "referer": "https://chatgpt.com/admin",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    }
+    
+    payload = {
+        "email_addresses": [email],
+        "role": "standard-user",
+        "resend_emails": False
+    }
+    
+    try:
+        response = cf_requests.post(url, headers=headers, json=payload, impersonate="chrome110")
+        
+        if response.status_code in [200, 201]:
+            data = response.json()
+            invites = data.get('account_invites', [])
+            if invites:
+                return {"success": True, "invite_id": invites[0].get('id')}
+            return {"success": True}
+        else:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ==================== 用户端路由 ====================
+
+@app.route('/')
+def index():
+    """用户首页"""
+    return render_template('user.html')
+
+
+@app.route('/api/join', methods=['POST'])
+def join_team():
+    """用户加入 Team (新逻辑: 自动从未满员的 Team 中选择)"""
+    data = request.json
+    email = data.get('email', '').strip()
+    key_code = data.get('key_code', '').strip()
+
+    if not email or not key_code:
+        return jsonify({"success": False, "error": "请输入邮箱和访问密钥"}), 400
+
+    # 验证密钥
+    key_info = AccessKey.get_by_code(key_code)
+    if not key_info:
+        return jsonify({"success": False, "error": "无效的访问密钥"}), 400
+
+    # 获取所有未满员的 Team (按成员数从多到少排序)
+    available_teams = Team.get_available_teams()
+
+    if not available_teams:
+        return jsonify({"success": False, "error": "暂无可用的 Team,所有 Team 都已满员"}), 400
+
+    # 检查该邮箱是否已被邀请到任何 Team
+    for team in available_teams:
+        invited_emails = Invitation.get_all_emails_by_team(team['id'])
+        if email in invited_emails:
+            return jsonify({"success": False, "error": f"该邮箱已被邀请到 {team['name']} 团队"}), 400
+
+    # 尝试邀请到每个 Team,直到成功
+    failed_teams = []
+
+    for team in available_teams:
+        # 再次检查人数 (防止并发问题)
+        invited_emails = Invitation.get_all_emails_by_team(team['id'])
+        if len(invited_emails) >= 4:
+            continue
+
+        # 尝试邀请
+        result = invite_to_team(
+            team['access_token'],
+            team['account_id'],
+            email
+        )
+
+        if result['success']:
+            # 计算过期时间 (如果是临时邀请码)
+            temp_expire_at = None
+            if key_info['is_temp'] and key_info['temp_hours'] > 0:
+                beijing_tz = pytz.timezone('Asia/Shanghai')
+                now = datetime.now(beijing_tz)
+                temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
+
+            # 记录邀请
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                key_id=key_info['id'],
+                invite_id=result.get('invite_id'),
+                status='success',
+                is_temp=key_info['is_temp'],
+                temp_expire_at=temp_expire_at
+            )
+
+            message = f"🎉 成功加入 {team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
+
+            if key_info['is_temp'] and key_info['temp_hours'] > 0:
+                message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
+
+            return jsonify({
+                "success": True,
+                "message": message,
+                "team_name": team['name'],
+                "email": email
+            })
+        else:
+            # 记录失败的邀请
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                key_id=key_info['id'],
+                status='failed'
+            )
+
+            # 记录失败的 Team,继续尝试下一个
+            failed_teams.append({
+                'team_name': team['name'],
+                'error': result.get('error', '未知错误')
+            })
+            continue
+
+    # 所有 Team 都邀请失败
+    error_details = "\n".join([f"- {t['team_name']}: {t['error']}" for t in failed_teams])
+    return jsonify({
+        "success": False,
+        "error": f"所有 Team 邀请都失败了:\n{error_details}"
+    }), 500
+
+
+# ==================== 管理员端路由 ====================
+
+@app.route('/admin')
+def admin_page():
+    """管理员页面"""
+    if not session.get('is_admin'):
+        return render_template('admin_login.html')
+    return render_template('admin.html')
+
+
+@app.route('/api/admin/login', methods=['POST'])
+def admin_login():
+    """管理员登录 (带 fail2ban 防护)"""
+    data = request.json
+    password = data.get('password', '')
+    ip_address = request.remote_addr
+
+    # 检查 IP 是否被封禁
+    if LoginAttempt.is_blocked(ip_address, max_attempts=5, minutes=30):
+        return jsonify({
+            "success": False,
+            "error": "登录失败次数过多,请 30 分钟后再试"
+        }), 429
+
+    if password == ADMIN_PASSWORD:
+        # 登录成功,记录
+        LoginAttempt.record(ip_address, 'admin', success=True)
+        session['is_admin'] = True
+        return jsonify({"success": True})
+    else:
+        # 登录失败,记录
+        LoginAttempt.record(ip_address, 'admin', success=False)
+
+        # 获取剩余尝试次数
+        failures = LoginAttempt.get_recent_failures(ip_address, minutes=30)
+        remaining = 5 - failures
+
+        if remaining > 0:
+            return jsonify({
+                "success": False,
+                "error": f"密码错误,还剩 {remaining} 次尝试机会"
+            }), 401
+        else:
+            return jsonify({
+                "success": False,
+                "error": "登录失败次数过多,已被封禁 30 分钟"
+            }), 429
+
+
+@app.route('/api/admin/logout', methods=['POST'])
+def admin_logout():
+    """管理员登出"""
+    session.pop('is_admin', None)
+    return jsonify({"success": True})
+
+
+@app.route('/api/admin/teams', methods=['GET'])
+@admin_required
+def get_teams():
+    """获取所有 Teams (新逻辑: 显示成员数)"""
+    teams = Team.get_all()
+
+    # 为每个 Team 添加成员信息
+    for team in teams:
+        invitations = Invitation.get_by_team(team['id'])
+        team['invitations'] = invitations
+        team['member_count'] = len(set(inv['email'] for inv in invitations if inv['status'] == 'success'))
+
+    return jsonify({"success": True, "teams": teams})
+
+
+@app.route('/api/admin/teams', methods=['POST'])
+@admin_required
+def create_team():
+    """创建新 Team（从 session JSON）- 支持自动识别并更新已存在的组织"""
+    data = request.json
+
+    # 解析 session JSON
+    session_data = data.get('session_data')
+    if isinstance(session_data, str):
+        try:
+            session_data = json.loads(session_data)
+        except:
+            return jsonify({"success": False, "error": "无效的 JSON 格式"}), 400
+
+    name = data.get('name', '').strip()
+    if not name:
+        # 使用邮箱作为默认名称
+        name = session_data.get('user', {}).get('email', 'Unknown Team')
+
+    account_id = session_data.get('account', {}).get('id')
+    access_token = session_data.get('accessToken')
+    organization_id = session_data.get('account', {}).get('organizationId')
+    email = session_data.get('user', {}).get('email')
+
+    if not account_id or not access_token:
+        return jsonify({"success": False, "error": "缺少必要的账户信息"}), 400
+
+    try:
+        # 检查是否已存在相同的 organization_id
+        existing_team = None
+        if organization_id:
+            existing_team = Team.get_by_organization_id(organization_id)
+
+        if existing_team:
+            # 已存在,更新 Token 和其他信息
+            Team.update_team_info(
+                existing_team['id'],
+                name=name,
+                account_id=account_id,
+                access_token=access_token,
+                email=email
+            )
+            return jsonify({
+                "success": True,
+                "team_id": existing_team['id'],
+                "message": f"检测到已存在的组织 (ID: {organization_id}),已自动更新 Token 和信息",
+                "updated": True
+            })
+        else:
+            # 不存在,创建新 Team
+            team_id = Team.create(name, account_id, access_token, organization_id, email)
+            return jsonify({
+                "success": True,
+                "team_id": team_id,
+                "message": "Team 创建成功",
+                "updated": False
+            })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/teams/<int:team_id>', methods=['DELETE'])
+@admin_required
+def delete_team(team_id):
+    """删除 Team"""
+    try:
+        Team.delete(team_id)
+        return jsonify({"success": True, "message": "Team 删除成功"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/teams/<int:team_id>/token', methods=['PUT'])
+@admin_required
+def update_team_token(team_id):
+    """更新 Team 的 Token"""
+    data = request.json
+    session_data = data.get('session_data')
+    
+    if isinstance(session_data, str):
+        try:
+            session_data = json.loads(session_data)
+        except:
+            return jsonify({"success": False, "error": "无效的 JSON 格式"}), 400
+    
+    access_token = session_data.get('accessToken')
+    if not access_token:
+        return jsonify({"success": False, "error": "缺少 accessToken"}), 400
+    
+    try:
+        Team.update_token(team_id, access_token)
+        return jsonify({"success": True, "message": "Token 更新成功"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/keys', methods=['GET'])
+@admin_required
+def get_all_keys():
+    """获取所有邀请码"""
+    try:
+        keys = AccessKey.get_all()
+        return jsonify({"success": True, "keys": keys})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/keys', methods=['POST'])
+@admin_required
+def create_invite_key():
+    """创建新的邀请码 (不绑定特定 Team)"""
+    data = request.json
+    is_temp = data.get('is_temp', False)
+    temp_hours = data.get('temp_hours', 24) if is_temp else 0
+
+    try:
+        result = AccessKey.create(is_temp=is_temp, temp_hours=temp_hours)
+        return jsonify({
+            "success": True,
+            "key_id": result['id'],
+            "key_code": result['key_code'],
+            "message": "邀请码创建成功"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/keys/<int:key_id>', methods=['DELETE'])
+@admin_required
+def delete_invite_key(key_id):
+    """删除邀请码"""
+    try:
+        AccessKey.delete(key_id)
+        return jsonify({"success": True, "message": "邀请码删除成功"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/invitations', methods=['GET'])
+@admin_required
+def get_invitations():
+    """获取所有邀请记录"""
+    invitations = Invitation.get_all()
+    return jsonify({"success": True, "invitations": invitations})
+
+
+@app.route('/api/admin/invitations/<int:invitation_id>/confirm', methods=['POST'])
+@admin_required
+def confirm_invitation(invitation_id):
+    """确认邀请 (取消自动踢出)"""
+    try:
+        Invitation.confirm(invitation_id)
+        return jsonify({"success": True, "message": "已确认该邀请,不会自动踢出"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def get_team_members(access_token, account_id):
+    """获取 Team 成员列表"""
+    url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users"
+
+    headers = {
+        "accept": "*/*",
+        "accept-language": "zh-CN,zh;q=0.9",
+        "authorization": f"Bearer {access_token}",
+        "chatgpt-account-id": account_id,
+        "origin": "https://chatgpt.com",
+        "referer": "https://chatgpt.com/admin",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    }
+
+    try:
+        response = cf_requests.get(url, headers=headers, impersonate="chrome110")
+        if response.status_code == 200:
+            data = response.json()
+            return {"success": True, "members": data.get('account_users', [])}
+        else:
+            return {"success": False, "error": response.text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def kick_member(access_token, account_id, user_id):
+    """踢出成员"""
+    url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users/{user_id}"
+
+    headers = {
+        "accept": "*/*",
+        "accept-language": "zh-CN,zh;q=0.9",
+        "authorization": f"Bearer {access_token}",
+        "chatgpt-account-id": account_id,
+        "origin": "https://chatgpt.com",
+        "referer": "https://chatgpt.com/admin",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    }
+
+    try:
+        response = cf_requests.delete(url, headers=headers, impersonate="chrome110")
+        if response.status_code == 200:
+            return {"success": True}
+        else:
+            return {"success": False, "error": response.text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.route('/api/admin/teams/<int:team_id>/members', methods=['GET'])
+@admin_required
+def get_members(team_id):
+    """获取 Team 成员列表"""
+    team = Team.get_by_id(team_id)
+    if not team:
+        return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+    result = get_team_members(team['access_token'], team['account_id'])
+    return jsonify(result)
+
+
+@app.route('/api/admin/teams/<int:team_id>/members/<user_id>', methods=['DELETE'])
+@admin_required
+def kick_team_member(team_id, user_id):
+    """踢出 Team 成员"""
+    team = Team.get_by_id(team_id)
+    if not team:
+        return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+    # 获取成员信息
+    members_result = get_team_members(team['access_token'], team['account_id'])
+    if not members_result['success']:
+        return jsonify({"success": False, "error": "无法获取成员列表"}), 500
+
+    # 找到要踢的成员
+    member = next((m for m in members_result['members'] if m['user_id'] == user_id), None)
+    if not member:
+        return jsonify({"success": False, "error": "成员不存在"}), 404
+
+    # 执行踢人
+    result = kick_member(team['access_token'], team['account_id'], user_id)
+
+    if result['success']:
+        # 记录日志
+        KickLog.create(
+            team_id=team_id,
+            user_id=user_id,
+            email=member.get('email', 'unknown'),
+            reason='管理员手动踢出',
+            success=True
+        )
+        return jsonify({"success": True, "message": "成员已踢出"})
+    else:
+        KickLog.create(
+            team_id=team_id,
+            user_id=user_id,
+            email=member.get('email', 'unknown'),
+            reason='管理员手动踢出',
+            success=False,
+            error_message=result.get('error')
+        )
+        return jsonify({"success": False, "error": result.get('error')}), 500
+
+
+@app.route('/api/admin/teams/<int:team_id>/invite', methods=['POST'])
+@admin_required
+def admin_invite_member(team_id):
+    """管理员直接邀请成员"""
+    data = request.json
+    email = data.get('email', '').strip()
+    is_temp = data.get('is_temp', False)
+    temp_hours = data.get('temp_hours', 24) if is_temp else 0
+
+    if not email:
+        return jsonify({"success": False, "error": "请输入邮箱"}), 400
+
+    team = Team.get_by_id(team_id)
+    if not team:
+        return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+    # 检查 Team 人数是否已满
+    invited_emails = Invitation.get_all_emails_by_team(team_id)
+    if len(invited_emails) >= 4:
+        return jsonify({"success": False, "error": "该 Team 已达到人数上限 (4人)"}), 400
+
+    # 检查该邮箱是否已被邀请
+    if email in invited_emails:
+        return jsonify({"success": False, "error": "该邮箱已被邀请过"}), 400
+
+    # 执行邀请
+    result = invite_to_team(team['access_token'], team['account_id'], email)
+
+    if result['success']:
+        # 计算过期时间
+        temp_expire_at = None
+        if is_temp and temp_hours > 0:
+            beijing_tz = pytz.timezone('Asia/Shanghai')
+            now = datetime.now(beijing_tz)
+            temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+
+        # 记录邀请
+        Invitation.create(
+            team_id=team_id,
+            email=email,
+            invite_id=result.get('invite_id'),
+            status='success',
+            is_temp=is_temp,
+            temp_expire_at=temp_expire_at
+        )
+
+        return jsonify({
+            "success": True,
+            "message": f"已成功邀请 {email}",
+            "invite_id": result.get('invite_id')
+        })
+    else:
+        Invitation.create(
+            team_id=team_id,
+            email=email,
+            status='failed'
+        )
+        return jsonify({
+            "success": False,
+            "error": f"邀请失败: {result.get('error', '未知错误')}"
+        }), 500
+
+
+@app.route('/api/admin/auto-kick/config', methods=['GET'])
+@admin_required
+def get_auto_kick_config():
+    """获取自动踢人配置"""
+    config = AutoKickConfig.get()
+    return jsonify({"success": True, "config": config})
+
+
+@app.route('/api/admin/auto-kick/config', methods=['PUT'])
+@admin_required
+def update_auto_kick_config():
+    """更新自动踢人配置"""
+    data = request.json
+
+    try:
+        AutoKickConfig.update(
+            enabled=data.get('enabled'),
+            check_interval_min=data.get('check_interval_min'),
+            check_interval_max=data.get('check_interval_max'),
+            start_time=data.get('start_time'),
+            end_time=data.get('end_time')
+        )
+
+        # 如果启用了自动检测,启动服务
+        if data.get('enabled'):
+            auto_kick_service.start()
+        else:
+            auto_kick_service.stop()
+
+        return jsonify({"success": True, "message": "配置更新成功"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/auto-kick/logs', methods=['GET'])
+@admin_required
+def get_kick_logs():
+    """获取踢人日志"""
+    limit = request.args.get('limit', 100, type=int)
+    logs = KickLog.get_all(limit)
+    return jsonify({"success": True, "logs": logs})
+
+
+@app.route('/api/admin/auto-kick/check-now', methods=['POST'])
+@admin_required
+def check_now():
+    """立即执行一次检测"""
+    try:
+        # 在新线程中执行检测
+        import threading
+        thread = threading.Thread(target=auto_kick_service._check_and_kick)
+        thread.start()
+        return jsonify({"success": True, "message": "检测任务已启动"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/health')
+def health():
+    """健康检查"""
+    return jsonify({"status": "ok"})
+
+
+if __name__ == '__main__':
+    print(f"🚀 ChatGPT Team 自动邀请系统启动")
+    print(f"📍 管理员后台: http://{HOST}:{PORT}/admin")
+    print(f"📍 用户页面: http://{HOST}:{PORT}/")
+    print(f"🔑 管理员密码: {ADMIN_PASSWORD}")
+    print(f"⚠️  请在生产环境中修改管理员密码！")
+
+    # 检查自动踢人配置,如果启用则启动服务
+    config = AutoKickConfig.get()
+    if config and config['enabled']:
+        auto_kick_service.start()
+
+    app.run(host=HOST, port=PORT, debug=DEBUG)

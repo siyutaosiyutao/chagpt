@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员后台</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>🎯 ChatGPT Team 管理后台</h1>
+            <button onclick="logout()" class="btn btn-secondary">退出登录</button>
+        </header>
+        
+        <div class="admin-content">
+            <!-- 添加 Team -->
+            <div class="card">
+                <h2>➕ 添加新 Team</h2>
+                <form id="addTeamForm">
+                    <div class="form-group">
+                        <label for="team_name">Team 名称（可选）</label>
+                        <input type="text" id="team_name" placeholder="留空则使用邮箱作为名称">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="session_json">Session JSON</label>
+                        <textarea id="session_json" rows="8" placeholder='粘贴从 https://chatgpt.com/api/auth/session 获取的 JSON' required></textarea>
+                        <small>💡 使用油猴脚本可自动上传</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">创建 Team</button>
+                </form>
+            </div>
+            
+            <!-- 自动踢人配置 -->
+            <div class="card">
+                <h2>🤖 自动踢人配置</h2>
+                <form id="autoKickForm">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="auto_kick_enabled">
+                            启用自动检测踢人
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="check_interval_min">检测间隔 (秒)</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="number" id="check_interval_min" min="30" max="300" placeholder="最小值" style="width: 100px;">
+                            <span>-</span>
+                            <input type="number" id="check_interval_max" min="30" max="300" placeholder="最大值" style="width: 100px;">
+                            <small>建议: 90-120 秒</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="start_time">运行时间 (北京时间)</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="time" id="start_time" style="width: 120px;">
+                            <span>-</span>
+                            <input type="time" id="end_time" style="width: 120px;">
+                            <small>例如: 09:00 - 22:00</small>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button type="submit" class="btn btn-primary">💾 保存配置</button>
+                        <button type="button" onclick="checkNow()" class="btn btn-secondary">🔍 立即检测一次</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Teams 列表 -->
+            <div class="card">
+                <h2>📋 Teams 列表</h2>
+                <button onclick="loadTeams()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="teamsList"></div>
+            </div>
+
+            <!-- 踢人日志 -->
+            <div class="card">
+                <h2>📜 踢人日志</h2>
+                <button onclick="loadKickLogs()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="kickLogsList"></div>
+            </div>
+
+            <!-- 一键获取密钥 -->
+            <div class="card">
+                <h2>🔑 获取未使用密钥</h2>
+                <div class="form-group">
+                    <label for="keyCount">要获取的密钥数量</label>
+                    <input type="number" id="keyCount" min="1" placeholder="输入数量，如 10" style="width: 200px;">
+                </div>
+                <button onclick="getUnusedKeys()" class="btn btn-primary">📋 获取密钥</button>
+                <div id="allKeysResult" style="margin-top: 15px;"></div>
+            </div>
+            
+            <!-- 邀请记录 -->
+            <div class="card">
+                <h2>📊 邀请记录</h2>
+                <button onclick="loadInvitations()" class="btn btn-secondary" style="margin-bottom: 15px;">🔄 刷新</button>
+                <div id="invitationsList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 页面加载时获取数据
+        window.addEventListener('load', () => {
+            loadTeams();
+            loadInvitations();
+            loadAutoKickConfig();
+            loadKickLogs();
+        });
+        
+        // 添加 Team
+        document.getElementById('addTeamForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('team_name').value.trim();
+            const sessionJson = document.getElementById('session_json').value.trim();
+            
+            try {
+                const sessionData = JSON.parse(sessionJson);
+                
+                const response = await fetch('/api/admin/teams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, session_data: sessionData })
+                });
+                
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.updated) {
+                        alert('✅ ' + data.message);
+                    } else {
+                        alert('✅ Team 创建成功！');
+                    }
+                    document.getElementById('addTeamForm').reset();
+                    loadTeams();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ JSON 格式错误或网络错误');
+            }
+        });
+        
+        // 加载 Teams
+        async function loadTeams() {
+            try {
+                const response = await fetch('/api/admin/teams');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayTeams(data.teams);
+                }
+            } catch (error) {
+                console.error('加载 Teams 失败', error);
+            }
+        }
+        
+        // 显示 Teams
+        function displayTeams(teams) {
+            const container = document.getElementById('teamsList');
+            
+            if (teams.length === 0) {
+                container.innerHTML = '<p class="empty">暂无 Team</p>';
+                return;
+            }
+            
+            container.innerHTML = teams.map(team => `
+                <div class="team-item">
+                    <div class="team-header">
+                        <h3>${team.name}</h3>
+                        <span class="badge">${team.used_keys}/${team.total_keys} 已使用</span>
+                    </div>
+                    <div class="team-info">
+                        <p><strong>邮箱:</strong> ${team.email || 'N/A'}</p>
+                        <p><strong>Account ID:</strong> <code>${team.account_id}</code></p>
+                        <p><strong>创建时间:</strong> ${new Date(team.created_at).toLocaleString('zh-CN')}</p>
+                    </div>
+                    <div class="keys-section">
+                        <h4>🔑 访问密钥</h4>
+                        ${team.keys.map((key, idx) => `
+                            <div class="key-item ${key.is_used ? 'used' : ''}">
+                                <span class="key-number">#${idx + 1}</span>
+                                <code class="key-code">${key.key_code}</code>
+                                ${key.is_used ? 
+                                    `<span class="key-status">✓ 已使用 (${key.used_by_email})</span>` :
+                                    `<button onclick="copyKey('${key.key_code}')" class="btn-small">复制</button>
+                                     <button onclick="regenerateKey(${key.id})" class="btn-small">重新生成</button>`
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="team-actions">
+                        <button onclick="updateToken(${team.id})" class="btn btn-secondary">更新 Token</button>
+                        <button onclick="deleteTeam(${team.id}, '${team.name}')" class="btn btn-danger">删除 Team</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 加载邀请记录
+        async function loadInvitations() {
+            try {
+                const response = await fetch('/api/admin/invitations');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayInvitations(data.invitations);
+                }
+            } catch (error) {
+                console.error('加载邀请记录失败', error);
+            }
+        }
+        
+        // 显示邀请记录
+        function displayInvitations(invitations) {
+            const container = document.getElementById('invitationsList');
+            
+            if (invitations.length === 0) {
+                container.innerHTML = '<p class="empty">暂无邀请记录</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <table class="invitations-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>Team</th>
+                            <th>邮箱</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${invitations.map(inv => `
+                            <tr>
+                                <td>${new Date(inv.created_at).toLocaleString('zh-CN')}</td>
+                                <td>${inv.team_name}</td>
+                                <td>${inv.email}</td>
+                                <td><span class="status-${inv.status}">${inv.status === 'success' ? '✅ 成功' : '❌ 失败'}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+        
+        // 复制密钥
+        function copyKey(key) {
+            navigator.clipboard.writeText(key).then(() => {
+                alert('✅ 密钥已复制到剪贴板');
+            });
+        }
+        
+        // 重新生成密钥
+        async function regenerateKey(keyId) {
+            if (!confirm('确定要重新生成此密钥吗？')) return;
+            
+            try {
+                const response = await fetch(`/api/admin/keys/${keyId}/regenerate`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ 密钥已重新生成');
+                    loadTeams();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 操作失败');
+            }
+        }
+        
+        // 更新 Token
+        async function updateToken(teamId) {
+            const sessionJson = prompt('请粘贴新的 Session JSON:');
+            if (!sessionJson) return;
+            
+            try {
+                const sessionData = JSON.parse(sessionJson);
+                
+                const response = await fetch(`/api/admin/teams/${teamId}/token`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_data: sessionData })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ Token 更新成功');
+                    loadTeams();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ JSON 格式错误');
+            }
+        }
+        
+        // 删除 Team
+        async function deleteTeam(teamId, teamName) {
+            if (!confirm(`确定要删除 "${teamName}" 吗？此操作不可恢复！`)) return;
+            
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ Team 已删除');
+                    loadTeams();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 删除失败');
+            }
+        }
+        
+        // 获取指定数量的未使用密钥
+        async function getUnusedKeys() {
+            const count = parseInt(document.getElementById('keyCount').value);
+            
+            if (!count || count <= 0) {
+                alert('❌ 请输入有效的数量');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/keys/all-unused', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ count })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const container = document.getElementById('allKeysResult');
+                    
+                    // 每行一个密钥
+                    const text = data.keys.join('\n');
+                    
+                    container.innerHTML = `
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; position: relative;">
+                            <div style="margin-bottom: 10px; color: #666;">
+                                <strong>已获取 ${data.count} 个密钥</strong> (剩余 ${data.total_available - data.count} 个可用)
+                            </div>
+                            <button onclick="copyAllKeys()" class="btn btn-primary" style="position: absolute; top: 10px; right: 10px; width: auto;">📋 复制全部</button>
+                            <textarea id="allKeysText" readonly style="width: 100%; min-height: 200px; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; margin-top: 30px;">${text}</textarea>
+                        </div>
+                    `;
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 网络错误');
+            }
+        }
+        
+        // 复制所有密钥
+        function copyAllKeys() {
+            const text = document.getElementById('allKeysText').value;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('✅ 所有密钥已复制到剪贴板');
+            });
+        }
+        
+        // 加载自动踢人配置
+        async function loadAutoKickConfig() {
+            try {
+                const response = await fetch('/api/admin/auto-kick/config');
+                const data = await response.json();
+
+                if (data.success && data.config) {
+                    const config = data.config;
+                    document.getElementById('auto_kick_enabled').checked = config.enabled;
+                    document.getElementById('check_interval_min').value = config.check_interval_min;
+                    document.getElementById('check_interval_max').value = config.check_interval_max;
+                    document.getElementById('start_time').value = config.start_time;
+                    document.getElementById('end_time').value = config.end_time;
+                }
+            } catch (error) {
+                console.error('加载配置失败', error);
+            }
+        }
+
+        // 保存自动踢人配置
+        document.getElementById('autoKickForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const config = {
+                enabled: document.getElementById('auto_kick_enabled').checked,
+                check_interval_min: parseInt(document.getElementById('check_interval_min').value),
+                check_interval_max: parseInt(document.getElementById('check_interval_max').value),
+                start_time: document.getElementById('start_time').value,
+                end_time: document.getElementById('end_time').value
+            };
+
+            // 验证
+            if (config.check_interval_min < 30 || config.check_interval_max < 30) {
+                alert('❌ 检测间隔不能小于 30 秒');
+                return;
+            }
+
+            if (config.check_interval_min > config.check_interval_max) {
+                alert('❌ 最小间隔不能大于最大间隔');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/auto-kick/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ 配置保存成功！');
+                    loadAutoKickConfig();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 保存失败');
+            }
+        });
+
+        // 立即检测一次
+        async function checkNow() {
+            if (!confirm('确定要立即执行一次检测吗？')) return;
+
+            try {
+                const response = await fetch('/api/admin/auto-kick/check-now', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ 检测任务已启动，请稍后查看日志');
+                    setTimeout(() => loadKickLogs(), 3000);
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 启动失败');
+            }
+        }
+
+        // 加载踢人日志
+        async function loadKickLogs() {
+            try {
+                const response = await fetch('/api/admin/auto-kick/logs');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayKickLogs(data.logs);
+                }
+            } catch (error) {
+                console.error('加载日志失败', error);
+            }
+        }
+
+        // 显示踢人日志
+        function displayKickLogs(logs) {
+            const container = document.getElementById('kickLogsList');
+
+            if (logs.length === 0) {
+                container.innerHTML = '<p class="empty">暂无踢人记录</p>';
+                return;
+            }
+
+            container.innerHTML = `
+                <table class="invitations-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>Team</th>
+                            <th>邮箱</th>
+                            <th>原因</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${logs.map(log => `
+                            <tr>
+                                <td>${new Date(log.created_at).toLocaleString('zh-CN')}</td>
+                                <td>${log.team_name}</td>
+                                <td>${log.email}</td>
+                                <td>${log.reason}</td>
+                                <td>
+                                    ${log.success ?
+                                        '<span class="status-success">✅ 成功</span>' :
+                                        `<span class="status-failed">❌ 失败</span><br><small>${log.error_message || ''}</small>`
+                                    }
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        // 退出登录
+        async function logout() {
+            try {
+                await fetch('/api/admin/logout', { method: 'POST' });
+                window.location.href = '/admin';
+            } catch (error) {
+                console.error('退出失败', error);
+            }
+        }
+    </script>
+</body>
+</html>
