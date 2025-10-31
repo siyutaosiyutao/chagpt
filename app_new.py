@@ -89,10 +89,30 @@ def join_team():
     if not key_info:
         return jsonify({"success": False, "error": "无效的访问密钥"}), 400
 
-    # 获取邀请码对应的 Team
-    team = Team.get_by_id(key_info['team_id'])
+    # 获取或分配 Team
+    team = None
+    assigned_team_id = key_info.get('team_id')
+
+    if assigned_team_id:
+        team = Team.get_by_id(assigned_team_id)
+        if team:
+            existing_members = Invitation.get_all_emails_by_team(team['id'])
+            if len(existing_members) >= 4:
+                # 已分配的 Team 已满,释放绑定,重新分配
+                AccessKey.assign_team(key_info['id'], None)
+                team = None
+                assigned_team_id = None
+        else:
+            # 已分配的 Team 不存在,释放绑定
+            AccessKey.assign_team(key_info['id'], None)
+            assigned_team_id = None
+
     if not team:
-        return jsonify({"success": False, "error": "该邀请码对应的 Team 不存在"}), 400
+        available_teams = Team.get_available_teams()
+        if not available_teams:
+            return jsonify({"success": False, "error": "当前无可用 Team,请联系管理员"}), 400
+        team = available_teams[0]
+        AccessKey.assign_team(key_info['id'], team['id'])
 
     # 检查 Team 人数是否已满 (上限 4 人)
     invited_emails = Invitation.get_all_emails_by_team(team['id'])
@@ -222,6 +242,9 @@ def get_teams():
         invitations = Invitation.get_by_team(team['id'])
         team['invitations'] = invitations
         team['member_count'] = len(set(inv['email'] for inv in invitations if inv['status'] == 'success'))
+        team['keys'] = AccessKey.get_by_team(team['id'])
+        team['total_keys'] = len(team['keys'])
+        team['available_slots'] = max(0, 4 - team['member_count'])
 
     return jsonify({"success": True, "teams": teams})
 
@@ -342,17 +365,17 @@ def create_team_invite_key(team_id):
     temp_hours = data.get('temp_hours', 24) if is_temp else 0
 
     try:
-        # 验证 Team 是否存在
+        # 验证 Team 是否存在 (仅用于提醒,不再提前绑定 Team)
         team = Team.get_by_id(team_id)
         if not team:
             return jsonify({"success": False, "error": "Team 不存在"}), 404
 
-        result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
+        result = AccessKey.create(team_id=None, is_temp=is_temp, temp_hours=temp_hours)
         return jsonify({
             "success": True,
             "key_id": result['id'],
             "key_code": result['key_code'],
-            "message": "邀请码创建成功"
+            "message": "邀请码创建成功,将在首次使用时自动分配 Team"
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -363,17 +386,27 @@ def create_team_invite_key(team_id):
 def create_invite_key():
     """创建新的邀请码 (不绑定特定 Team)"""
     data = request.json
-    team_id = data.get('team_id')
+    team_id_raw = data.get('team_id')
+    team_id = None
     is_temp = data.get('is_temp', False)
     temp_hours = data.get('temp_hours', 24) if is_temp else 0
 
     try:
+        if team_id_raw not in (None, '', 'null'):
+            try:
+                team_id = int(team_id_raw)
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "error": "无效的 team_id"}), 400
+
+            team = Team.get_by_id(team_id)
+            if not team:
+                return jsonify({"success": False, "error": "Team 不存在"}), 404
         result = AccessKey.create(team_id=team_id, is_temp=is_temp, temp_hours=temp_hours)
         return jsonify({
             "success": True,
             "key_id": result['id'],
             "key_code": result['key_code'],
-            "message": "邀请码创建成功"
+            "message": "邀请码创建成功" if team_id else "邀请码创建成功,将在首次使用时自动分配 Team"
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

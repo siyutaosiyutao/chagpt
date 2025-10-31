@@ -11,6 +11,89 @@
             box-sizing: border-box;
         }
 
+        async function loadGlobalKeys() {
+            try {
+                const response = await fetch('/api/admin/keys');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayGlobalKeys(data.keys);
+                } else {
+                    document.getElementById('globalKeysList').innerHTML = '<p>加载失败: ' + data.error + '</p>';
+                }
+            } catch (error) {
+                document.getElementById('globalKeysList').innerHTML = '<p>加载失败: ' + error.message + '</p>';
+            }
+        }
+
+        function displayGlobalKeys(keys) {
+            const container = document.getElementById('globalKeysList');
+
+            if (!keys || keys.length === 0) {
+                container.innerHTML = '<p>暂无邀请码</p>';
+                return;
+            }
+
+            let html = '<div class="keys-list">';
+
+            keys.forEach(key => {
+                const assignedInfo = key.team_name ? `分配给: ${key.team_name}` : '尚未分配 Team';
+                html += `
+                    <div class="key-item">
+                        <div class="key-info">
+                            <code class="key-code">${key.key_code}</code>
+                            ${key.is_temp ? '<span class="badge badge-temp">1日邀请码</span>' : '<span class="badge">永久</span>'}
+                            <span class="badge">使用 ${key.usage_count} 次</span>
+                            <div class="key-meta">
+                                <small>${assignedInfo}</small>
+                                <small>创建时间: ${new Date(key.created_at).toLocaleString('zh-CN')}</small>
+                            </div>
+                        </div>
+                        <div>
+                            <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
+                            <button onclick="deleteKey(${key.id}, true)" class="btn btn-danger btn-sm">🗑️ 删除</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        async function createGlobalInviteKey(e) {
+            e.preventDefault();
+
+            const isTemp = document.getElementById('global_key_is_temp').checked;
+            const teamId = document.getElementById('global_key_team').value;
+
+            try {
+                const response = await fetch('/api/admin/keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        is_temp: isTemp,
+                        temp_hours: 24,
+                        team_id: teamId || null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
+                    navigator.clipboard.writeText(data.key_code);
+                    document.getElementById('globalCreateKeyForm').reset();
+                    loadGlobalKeys();
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -80,7 +163,8 @@
         input[type="text"],
         input[type="email"],
         input[type="number"],
-        textarea {
+        textarea,
+        select {
             width: 100%;
             padding: 12px;
             border: 2px solid #e0e0e0;
@@ -90,7 +174,8 @@
         }
 
         input:focus,
-        textarea:focus {
+        textarea:focus,
+        select:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -329,6 +414,7 @@
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('teams')">📋 Teams 管理</button>
+            <button class="tab" onclick="switchTab('keys')">🔑 邀请码池</button>
             <button class="tab" onclick="switchTab('config')">⚙️ 自动踢人配置</button>
             <button class="tab" onclick="switchTab('logs')">📊 踢人日志</button>
             <button class="tab" onclick="switchTab('invitations')">📧 邀请记录</button>
@@ -353,6 +439,30 @@
 
             <h2>现有 Teams</h2>
             <div id="teamsList"></div>
+        </div>
+
+        <!-- 邀请码池 -->
+        <div id="keysTab" class="tab-content">
+            <h2>生成新邀请码</h2>
+            <form id="globalCreateKeyForm" onsubmit="createGlobalInviteKey(event)">
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="global_key_is_temp">
+                    <label for="global_key_is_temp">1日邀请码 (24小时后自动踢出)</label>
+                </div>
+                <div class="form-group">
+                    <label>优先分配 Team (可选):</label>
+                    <select id="global_key_team">
+                        <option value="">自动选择可用 Team</option>
+                    </select>
+                    <small style="color: #666;">如不选择,系统将在使用时自动分配拥有空位的 Team</small>
+                </div>
+                <button type="submit" class="btn btn-primary">🔑 生成邀请码</button>
+            </form>
+
+            <hr style="margin: 30px 0;">
+
+            <h2>邀请码列表</h2>
+            <div id="globalKeysList"></div>
         </div>
 
         <!-- 自动踢人配置 -->
@@ -428,6 +538,8 @@
                 <span class="close" onclick="closeKeysModal()">&times;</span>
             </div>
 
+            <p style="margin-bottom: 15px; color: #666;">提示: 新生成的邀请码默认未绑定 Team,将在用户使用时自动分配至有空位的 Team。</p>
+
             <div id="keysList"></div>
 
             <hr style="margin: 20px 0;">
@@ -446,10 +558,12 @@
 
     <script>
         let currentTeamId = null;
+        let cachedTeams = [];
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             loadTeams();
+            loadGlobalKeys();
             loadConfig();
             loadKickLogs();
             loadInvitations();
@@ -475,6 +589,7 @@
             event.target.classList.add('active');
 
             // 重新加载数据
+            if (tabName === 'keys') loadGlobalKeys();
             if (tabName === 'logs') loadKickLogs();
             if (tabName === 'invitations') loadInvitations();
         }
@@ -563,7 +678,9 @@
                 const data = await response.json();
 
                 if (data.success) {
+                    cachedTeams = data.teams;
                     displayTeams(data.teams);
+                    renderKeyTeamOptions();
                 }
             } catch (error) {
                 console.error('加载 Teams 失败:', error);
@@ -592,7 +709,8 @@
                             <p><strong>邮箱:</strong> ${team.email || '未设置'}</p>
                             <p><strong>Account ID:</strong> <code>${team.account_id}</code></p>
                             <p><strong>Organization ID:</strong> <code>${team.organization_id || '无'}</code></p>
-                            <p><strong>邀请码数量:</strong> ${team.total_keys} 个</p>
+                            <p><strong>已绑定邀请码:</strong> ${team.total_keys} 个</p>
+                            <p><strong>可用名额:</strong> ${team.available_slots} 人</p>
                             <p><strong>创建时间:</strong> ${new Date(team.created_at).toLocaleString('zh-CN')}</p>
                         </div>
                         <div class="team-actions">
@@ -607,6 +725,25 @@
 
             html += '</div>';
             container.innerHTML = html;
+        }
+
+        function renderKeyTeamOptions() {
+            const select = document.getElementById('global_key_team');
+            if (!select) return;
+
+            const previousValue = select.value;
+            select.innerHTML = '<option value="">自动选择可用 Team</option>';
+
+            cachedTeams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team.id;
+                option.textContent = `${team.name} (${team.member_count}/4 人)`;
+                select.appendChild(option);
+            });
+
+            if (previousValue && [...select.options].some(opt => opt.value === previousValue)) {
+                select.value = previousValue;
+            }
         }
 
         // 显示成员管理弹窗
@@ -738,9 +875,11 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    const team = data.teams.find(t => t.id === teamId);
+                    cachedTeams = data.teams;
+                    renderKeyTeamOptions();
+                    const team = cachedTeams.find(t => String(t.id) === String(teamId));
                     if (team) {
-                        displayKeys(team.keys);
+                        displayTeamKeys(team.keys);
                     }
                 }
             } catch (error) {
@@ -749,15 +888,15 @@
         }
 
         // 显示邀请码列表
-        function displayKeys(keys) {
+        function displayTeamKeys(keys) {
             const container = document.getElementById('keysList');
 
             if (!keys || keys.length === 0) {
-                container.innerHTML = '<p>暂无邀请码</p>';
+                container.innerHTML = '<p>暂无分配到该 Team 的邀请码</p>';
                 return;
             }
 
-            let html = '<h3>邀请码列表</h3><div class="keys-list">';
+            let html = '<h3>该 Team 的已分配邀请码</h3><div class="keys-list">';
 
             keys.forEach(key => {
                 html += `
@@ -790,7 +929,7 @@
             const isTemp = document.getElementById('key_is_temp').checked;
 
             try {
-                const response = await fetch(`/api/admin/teams/${teamId}/keys`, {
+                const response = await fetch(`/api/admin/keys`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ is_temp: isTemp, temp_hours: 24 })
@@ -799,10 +938,12 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    alert(`邀请码生成成功！\n\n${data.key_code}\n\n已复制到剪贴板`);
+                    alert(`邀请码生成成功！将在首次使用时自动分配 Team。\n\n${data.key_code}\n\n已复制到剪贴板`);
                     navigator.clipboard.writeText(data.key_code);
                     document.getElementById('createKeyForm').reset();
+                    loadGlobalKeys();
                     loadTeamKeys(teamId);
+                    loadTeams();
                 } else {
                     alert('错误: ' + data.error);
                 }
@@ -818,7 +959,7 @@
         }
 
         // 删除邀请码
-        async function deleteKey(keyId) {
+        async function deleteKey(keyId, reloadGlobal = false) {
             if (!confirm('确定要删除这个邀请码吗？')) return;
 
             try {
@@ -830,7 +971,13 @@
 
                 if (data.success) {
                     alert('邀请码已删除');
-                    loadTeamKeys(currentTeamId);
+                    if (reloadGlobal) {
+                        loadGlobalKeys();
+                    }
+                    if (currentTeamId && document.getElementById('keysModal').style.display === 'block') {
+                        loadTeamKeys(currentTeamId);
+                    }
+                    loadTeams();
                 } else {
                     alert('错误: ' + data.error);
                 }

@@ -46,13 +46,13 @@ def init_db():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS access_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                team_id INTEGER NOT NULL,
+                team_id INTEGER,
                 key_code TEXT NOT NULL UNIQUE,
                 is_temp BOOLEAN DEFAULT 0,
                 temp_hours INTEGER DEFAULT 0,
                 is_cancelled BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE
+                FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE SET NULL
             )
         ''')
         
@@ -222,22 +222,24 @@ class Team:
     @staticmethod
     def get_available_teams():
         """获取所有未满员的 Team (按成员数从多到少排序,优先填满快满的 Team)"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT t.*,
-                       (SELECT COUNT(*) FROM invitations WHERE team_id = t.id) as member_count
-                FROM teams t
-                HAVING member_count < 4
-                ORDER BY member_count DESC, t.id ASC
-            ''')
-            return [dict(row) for row in cursor.fetchall()]
+        teams = Team.get_all()
+        available = []
+        for team in teams:
+            invitations = Invitation.get_by_team(team['id'])
+            member_count = len({inv['email'] for inv in invitations if inv['status'] == 'success'})
+            if member_count < 4:
+                team_copy = dict(team)
+                team_copy['member_count'] = member_count
+                available.append(team_copy)
+
+        available.sort(key=lambda item: (-item['member_count'], item['id']))
+        return available
 
 
 class AccessKey:
     @staticmethod
-    def create(team_id, is_temp=False, temp_hours=0):
-        """创建新的邀请码 (绑定到指定 Team)"""
+    def create(team_id=None, is_temp=False, temp_hours=0):
+        """创建新的邀请码, team_id 可选 (将在使用时分配)"""
         key_code = secrets.token_urlsafe(KEY_LENGTH)
         with get_db() as conn:
             cursor = conn.cursor()
@@ -251,6 +253,17 @@ class AccessKey:
             }
 
     @staticmethod
+    def assign_team(key_id, team_id):
+        """在邀请码首次使用时绑定 Team"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE access_keys
+                SET team_id = ?
+                WHERE id = ?
+            ''', (team_id, key_id))
+
+    @staticmethod
     def get_all():
         """获取所有密钥"""
         with get_db() as conn:
@@ -258,13 +271,39 @@ class AccessKey:
             cursor.execute('''
                 SELECT ak.*,
                        t.name as team_name,
-                       (SELECT COUNT(*) FROM invitations WHERE key_id = ak.id) as usage_count
+                       (SELECT COUNT(*) FROM invitations WHERE key_id = ak.id AND status = 'success') as usage_count
                 FROM access_keys ak
                 LEFT JOIN teams t ON ak.team_id = t.id
                 WHERE ak.is_cancelled = 0
                 ORDER BY ak.created_at DESC
             ''')
             return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_team(team_id):
+        """获取指定 Team 已绑定的邀请码"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ak.*,
+                       (SELECT COUNT(*) FROM invitations WHERE key_id = ak.id AND status = 'success') as usage_count
+                FROM access_keys ak
+                WHERE ak.team_id = ? AND ak.is_cancelled = 0
+                ORDER BY ak.created_at DESC
+            ''', (team_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def count_by_team(team_id):
+        """统计指定 Team 已绑定的邀请码数量"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COUNT(*) FROM access_keys
+                WHERE team_id = ? AND is_cancelled = 0
+            ''', (team_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 0
 
     @staticmethod
     def get_by_code(key_code):
@@ -347,7 +386,7 @@ class Invitation:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT DISTINCT email FROM invitations
-                WHERE team_id = ?
+                WHERE team_id = ? AND status = 'success'
             ''', (team_id,))
             return [row[0] for row in cursor.fetchall()]
 
