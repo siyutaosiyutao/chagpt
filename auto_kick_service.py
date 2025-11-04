@@ -205,10 +205,11 @@ class AutoKickService:
         
         try:
             response = cf_requests.get(url, headers=headers, impersonate="chrome110", timeout=10)
-            
+
             if response.status_code == 200:
                 data = response.json()
-                return data.get('items', [])
+                # 统一使用account_users字段，与app_new.py保持一致
+                return data.get('account_users', [])
             elif response.status_code == 429:
                 print(f"   ⚠️  请求过于频繁,等待 5 分钟")
                 time.sleep(300)
@@ -243,8 +244,11 @@ class AutoKickService:
         
         try:
             response = cf_requests.delete(url, headers=headers, impersonate="chrome110", timeout=10)
-            
+
             if response.status_code == 200:
+                # 从invitations表中删除记录，释放位置
+                Invitation.delete_by_email(team_id, email)
+
                 print(f"   ✅ 成功踢出: {email}")
                 KickLog.create(team_id, user_id, email, reason, success=True)
             else:
