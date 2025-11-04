@@ -165,6 +165,9 @@ def join_team():
             temp_expire_at=temp_expire_at
         )
 
+        # 更新team的最后邀请时间（实现轮询）
+        Team.update_last_invite(team['id'])
+
         message = f"🎉 成功加入 {team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
 
         if key_info['is_temp'] and key_info['temp_hours'] > 0:
@@ -542,6 +545,9 @@ def kick_team_member(team_id, user_id):
     result = kick_member(team['access_token'], team['account_id'], user_id)
 
     if result['success']:
+        # 从invitations表中删除记录，释放位置
+        Invitation.delete_by_email(team_id, member.get('email', ''))
+
         # 记录日志
         KickLog.create(
             team_id=team_id,
@@ -609,6 +615,9 @@ def admin_invite_member(team_id):
             temp_expire_at=temp_expire_at
         )
 
+        # 更新team的最后邀请时间（实现轮询）
+        Team.update_last_invite(team_id)
+
         return jsonify({
             "success": True,
             "message": f"已成功邀请 {email}",
@@ -662,6 +671,9 @@ def kick_member_by_email(team_id):
     result = kick_member(team['access_token'], team['account_id'], user_id)
 
     if result['success']:
+        # 从invitations表中删除记录，释放位置
+        Invitation.delete_by_email(team_id, email)
+
         # 记录日志
         KickLog.create(
             team_id=team_id,
@@ -728,6 +740,9 @@ def admin_invite_auto():
             temp_expire_at=temp_expire_at
         )
 
+        # 更新team的最后邀请时间（实现轮询）
+        Team.update_last_invite(team['id'])
+
         return jsonify({
             "success": True,
             "message": f"已成功邀请 {email} 加入 {team['name']}",
@@ -793,6 +808,9 @@ def kick_member_by_email_auto():
     result = kick_member(found_team['access_token'], found_team['account_id'], user_id)
 
     if result['success']:
+        # 从invitations表中删除记录，释放位置
+        Invitation.delete_by_email(found_team['id'], email)
+
         # 记录日志
         KickLog.create(
             team_id=found_team['id'],

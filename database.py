@@ -37,6 +37,7 @@ def init_db():
                 access_token TEXT NOT NULL,
                 organization_id TEXT,
                 email TEXT,
+                last_invite_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -221,7 +222,7 @@ class Team:
 
     @staticmethod
     def get_available_teams():
-        """获取所有未满员的 Team (按成员数从多到少排序,优先填满快满的 Team)"""
+        """获取所有未满员的 Team (轮询机制: 按最后邀请时间排序，最久未使用的优先)"""
         teams = Team.get_all()
         available = []
         for team in teams:
@@ -232,8 +233,27 @@ class Team:
                 team_copy['member_count'] = member_count
                 available.append(team_copy)
 
-        available.sort(key=lambda item: (-item['member_count'], item['id']))
+        # 排序逻辑：
+        # 1. 优先选择从未使用过的team (last_invite_at is None)
+        # 2. 其次按最后邀请时间从早到晚排序（最久未使用的优先）
+        # 3. 同等条件下按id排序
+        available.sort(key=lambda item: (
+            item.get('last_invite_at') is not None,  # None排在前面
+            item.get('last_invite_at') or '',  # None转为空字符串
+            item['id']
+        ))
         return available
+
+    @staticmethod
+    def update_last_invite(team_id):
+        """更新Team的最后邀请时间"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE teams
+                SET last_invite_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (team_id,))
 
 
 class AccessKey:
@@ -399,6 +419,30 @@ class Invitation:
                 SET user_id = ?
                 WHERE id = ?
             ''', (user_id, invitation_id,))
+
+    @staticmethod
+    def delete_by_email(team_id, email):
+        """删除指定team中指定email的邀请记录（用于踢人后释放位置）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                DELETE FROM invitations
+                WHERE team_id = ? AND LOWER(email) = LOWER(?)
+            ''', (team_id, email))
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def get_by_user_id(team_id, user_id):
+        """根据user_id获取邀请记录"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM invitations
+                WHERE team_id = ? AND user_id = ?
+                LIMIT 1
+            ''', (team_id, user_id))
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
 
 class AutoKickConfig:
