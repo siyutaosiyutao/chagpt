@@ -123,74 +123,89 @@ def join_team():
         team = available_teams[0]
         AccessKey.assign_team(key_info['id'], team['id'])
 
-    # 获取实际成员列表并检查
-    members_result = get_team_members(team['access_token'], team['account_id'])
-    if not members_result['success']:
-        return jsonify({"success": False, "error": f"无法获取成员列表: {members_result.get('error')}"}), 500
+    # 轮询所有可用team直到成功
+    available_teams = Team.get_available_teams() if not team else [team]
+    last_error = None
 
-    members = members_result.get('members', [])
-    non_owner_members = [m for m in members if m.get('role') != 'account-owner']
+    for try_team in available_teams:
+        # 获取实际成员列表并检查
+        members_result = get_team_members(try_team['access_token'], try_team['account_id'])
+        if not members_result['success']:
+            last_error = f"无法获取成员列表: {members_result.get('error')}"
+            continue  # 尝试下一个team
 
-    if len(non_owner_members) >= 4:
-        return jsonify({"success": False, "error": "该 Team 已达到人数上限 (不含队长最多4人)"}), 400
+        members = members_result.get('members', [])
+        non_owner_members = [m for m in members if m.get('role') != 'account-owner']
 
-    # 检查该邮箱是否已在 Team 中
-    member_emails = [m.get('email') for m in members]
-    if email in member_emails:
-        return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
+        if len(non_owner_members) >= 4:
+            last_error = "该 Team 已达到人数上限"
+            continue  # 尝试下一个team
 
-    # 尝试邀请
-    result = invite_to_team(
-        team['access_token'],
-        team['account_id'],
-        email
-    )
+        # 检查该邮箱是否已在 Team 中
+        member_emails = [m.get('email') for m in members]
+        if email in member_emails:
+            last_error = f"该邮箱已在 {try_team['name']} 团队中"
+            continue  # 尝试下一个team
 
-    if result['success']:
-        # 计算过期时间 (如果是临时邀请码)
-        temp_expire_at = None
-        if key_info['is_temp'] and key_info['temp_hours'] > 0:
-            beijing_tz = pytz.timezone('Asia/Shanghai')
-            now = datetime.now(beijing_tz)
-            temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
-
-        # 记录邀请
-        Invitation.create(
-            team_id=team['id'],
-            email=email,
-            key_id=key_info['id'],
-            invite_id=result.get('invite_id'),
-            status='success',
-            is_temp=key_info['is_temp'],
-            temp_expire_at=temp_expire_at
+        # 尝试邀请
+        result = invite_to_team(
+            try_team['access_token'],
+            try_team['account_id'],
+            email
         )
 
-        # 更新team的最后邀请时间（实现轮询）
-        Team.update_last_invite(team['id'])
+        if result['success']:
+            # 邀请成功！
+            # 计算过期时间 (如果是临时邀请码)
+            temp_expire_at = None
+            if key_info['is_temp'] and key_info['temp_hours'] > 0:
+                beijing_tz = pytz.timezone('Asia/Shanghai')
+                now = datetime.now(beijing_tz)
+                temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
 
-        message = f"🎉 成功加入 {team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
+            # 记录邀请
+            Invitation.create(
+                team_id=try_team['id'],
+                email=email,
+                key_id=key_info['id'],
+                invite_id=result.get('invite_id'),
+                status='success',
+                is_temp=key_info['is_temp'],
+                temp_expire_at=temp_expire_at
+            )
 
-        if key_info['is_temp'] and key_info['temp_hours'] > 0:
-            message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
+            # 更新team的最后邀请时间（实现轮询）
+            Team.update_last_invite(try_team['id'])
 
-        return jsonify({
-            "success": True,
-            "message": message,
-            "team_name": team['name'],
-            "email": email
-        })
-    else:
-        # 记录失败的邀请
-        Invitation.create(
-            team_id=team['id'],
-            email=email,
-            key_id=key_info['id'],
-            status='failed'
-        )
+            # 更新邀请码绑定的team
+            AccessKey.assign_team(key_info['id'], try_team['id'])
 
-        return jsonify({
-            "success": False,
-            "error": f"邀请失败: {result.get('error', '未知错误')}"
+            message = f"🎉 成功加入 {try_team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
+
+            if key_info['is_temp'] and key_info['temp_hours'] > 0:
+                message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
+
+            return jsonify({
+                "success": True,
+                "message": message,
+                "team_name": try_team['name'],
+                "email": email
+            })
+        else:
+            # 这个team邀请失败，记录错误，继续尝试下一个
+            last_error = result.get('error', '未知错误')
+            Invitation.create(
+                team_id=try_team['id'],
+                email=email,
+                key_id=key_info['id'],
+                status='failed'
+            )
+            continue  # 尝试下一个team
+
+    # 所有team都尝试失败了
+    return jsonify({
+        "success": False,
+        "error": f"所有 Team 邀请均失败，最后错误: {last_error}"
     }), 500
 
 
@@ -698,7 +713,7 @@ def kick_member_by_email(team_id):
 @app.route('/api/admin/invite-auto', methods=['POST'])
 @admin_required
 def admin_invite_auto():
-    """管理员邀请成员(自动分配Team)"""
+    """管理员邀请成员(自动分配Team，失败自动重试下一个)"""
     data = request.json
     email = data.get('email', '').strip()
     is_temp = data.get('is_temp', False)
@@ -707,58 +722,67 @@ def admin_invite_auto():
     if not email:
         return jsonify({"success": False, "error": "请输入邮箱"}), 400
 
-    # 获取可用的Team
+    # 获取所有可用的Team
     available_teams = Team.get_available_teams()
     if not available_teams:
         return jsonify({"success": False, "error": "当前无可用 Team,请先添加 Team"}), 400
 
-    team = available_teams[0]  # 选择第一个可用的Team
+    # 轮询所有可用team直到成功
+    last_error = None
 
-    # 检查该邮箱是否已被邀请到该Team
-    invited_emails = Invitation.get_all_emails_by_team(team['id'])
-    if email in invited_emails:
-        return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
+    for team in available_teams:
+        # 检查该邮箱是否已被邀请到该Team
+        invited_emails = Invitation.get_all_emails_by_team(team['id'])
+        if email in invited_emails:
+            last_error = f"该邮箱已在 {team['name']} 团队中"
+            continue  # 尝试下一个team
 
-    # 执行邀请
-    result = invite_to_team(team['access_token'], team['account_id'], email)
+        # 执行邀请
+        result = invite_to_team(team['access_token'], team['account_id'], email)
 
-    if result['success']:
-        # 计算过期时间
-        temp_expire_at = None
-        if is_temp and temp_hours > 0:
-            beijing_tz = pytz.timezone('Asia/Shanghai')
-            now = datetime.now(beijing_tz)
-            temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+        if result['success']:
+            # 邀请成功！
+            # 计算过期时间
+            temp_expire_at = None
+            if is_temp and temp_hours > 0:
+                beijing_tz = pytz.timezone('Asia/Shanghai')
+                now = datetime.now(beijing_tz)
+                temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
 
-        # 记录邀请
-        Invitation.create(
-            team_id=team['id'],
-            email=email,
-            invite_id=result.get('invite_id'),
-            status='success',
-            is_temp=is_temp,
-            temp_expire_at=temp_expire_at
-        )
+            # 记录邀请
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                invite_id=result.get('invite_id'),
+                status='success',
+                is_temp=is_temp,
+                temp_expire_at=temp_expire_at
+            )
 
-        # 更新team的最后邀请时间（实现轮询）
-        Team.update_last_invite(team['id'])
+            # 更新team的最后邀请时间（实现轮询）
+            Team.update_last_invite(team['id'])
 
-        return jsonify({
-            "success": True,
-            "message": f"已成功邀请 {email} 加入 {team['name']}",
-            "team_name": team['name'],
-            "invite_id": result.get('invite_id')
-        })
-    else:
-        Invitation.create(
-            team_id=team['id'],
-            email=email,
-            status='failed'
-        )
-        return jsonify({
-            "success": False,
-            "error": f"邀请失败: {result.get('error', '未知错误')}"
-        }), 500
+            return jsonify({
+                "success": True,
+                "message": f"已成功邀请 {email} 加入 {team['name']}",
+                "team_name": team['name'],
+                "invite_id": result.get('invite_id')
+            })
+        else:
+            # 这个team邀请失败，记录错误，继续尝试下一个
+            last_error = result.get('error', '未知错误')
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                status='failed'
+            )
+            continue  # 尝试下一个team
+
+    # 所有team都尝试失败了
+    return jsonify({
+        "success": False,
+        "error": f"所有 Team 邀请均失败，最后错误: {last_error}"
+    }), 500
 
 
 @app.route('/api/admin/kick-by-email-auto', methods=['POST'])
