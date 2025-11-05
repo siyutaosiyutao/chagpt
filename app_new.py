@@ -278,18 +278,21 @@ def get_teams():
         team['member_count'] = len(set(inv['email'] for inv in invitations if inv['status'] == 'success'))
         team['available_slots'] = max(0, 4 - team['member_count'])
 
-        # 检测token是否有效
+        # 检测token是否有效（包含封禁、限流等状态）
         token_check = get_team_members(team['access_token'], team['account_id'])
         if token_check['success']:
             team['token_valid'] = True
-            team['token_status'] = 'valid'
+            team['token_status'] = 'active'
+            team['status_type'] = 'success'
             # 获取实际成员数
             actual_members = token_check.get('members', [])
             team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
         else:
             team['token_valid'] = False
-            team['token_status'] = 'invalid'
+            team['token_status'] = token_check.get('status', 'error')  # unauthorized/banned/rate_limited/error
+            team['status_type'] = token_check.get('status', 'error')
             team['token_error'] = token_check.get('error', '未知错误')
+            team['status_code'] = token_check.get('status_code', 0)
             team['actual_member_count'] = 0
 
     return jsonify({"success": True, "teams": teams})
@@ -476,7 +479,7 @@ def confirm_invitation(invitation_id):
 
 
 def get_team_members(access_token, account_id):
-    """获取 Team 成员列表"""
+    """获取 Team 成员列表（增强版：检测封禁、限流等状态）"""
     url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users"
 
     headers = {
@@ -491,13 +494,57 @@ def get_team_members(access_token, account_id):
 
     try:
         response = cf_requests.get(url, headers=headers, impersonate="chrome110")
+
         if response.status_code == 200:
             data = response.json()
-            return {"success": True, "members": data.get('account_users', [])}
+            return {
+                "success": True,
+                "members": data.get('account_users', []),
+                "status_code": 200,
+                "status": "active"
+            }
+        elif response.status_code == 401:
+            # Token失效或过期
+            return {
+                "success": False,
+                "error": "Token已失效或过期",
+                "status_code": 401,
+                "status": "unauthorized",
+                "detail": response.text
+            }
+        elif response.status_code == 403:
+            # 账号被封禁
+            return {
+                "success": False,
+                "error": "账号已被封禁",
+                "status_code": 403,
+                "status": "banned",
+                "detail": response.text
+            }
+        elif response.status_code == 429:
+            # 请求过于频繁
+            return {
+                "success": False,
+                "error": "请求过于频繁，已被限流",
+                "status_code": 429,
+                "status": "rate_limited",
+                "detail": response.text
+            }
         else:
-            return {"success": False, "error": response.text}
+            return {
+                "success": False,
+                "error": f"未知错误 (HTTP {response.status_code})",
+                "status_code": response.status_code,
+                "status": "error",
+                "detail": response.text
+            }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": f"网络错误: {str(e)}",
+            "status_code": 0,
+            "status": "network_error"
+        }
 
 
 def kick_member(access_token, account_id, user_id):

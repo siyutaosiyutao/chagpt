@@ -180,9 +180,27 @@
             animation: pulse 2s infinite;
         }
 
+        .token-status.banned {
+            background-color: #c92a2a;
+            color: white;
+            animation: shake 0.5s infinite;
+        }
+
+        .token-status.rate_limited {
+            background-color: #fab005;
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.6; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-2px); }
+            75% { transform: translateX(2px); }
         }
 
         .token-error {
@@ -193,6 +211,18 @@
             border-radius: 4px;
             font-size: 12px;
             color: #c92a2a;
+        }
+
+        .token-error.banned {
+            background-color: #ffe0e0;
+            border-left: 4px solid #c92a2a;
+            font-weight: bold;
+        }
+
+        .token-error.rate_limited {
+            background-color: #fff3bf;
+            border-left: 4px solid #fab005;
+            color: #e67700;
         }
 
         .team-header {
@@ -879,12 +909,46 @@
             let html = '<div class="teams-grid">';
 
             teams.forEach(team => {
-                const tokenStatusClass = team.token_valid ? 'valid' : 'invalid';
-                const tokenStatusText = team.token_valid ? '✓ Token有效' : '✗ Token失效';
-                const cardClass = team.token_valid ? '' : 'token-invalid';
+                // 根据状态类型设置不同的样式和文本
+                let tokenStatusClass, tokenStatusText, cardClass, errorClass;
+
+                if (team.token_valid) {
+                    tokenStatusClass = 'valid';
+                    tokenStatusText = '✓ Token有效';
+                    cardClass = '';
+                } else {
+                    switch(team.status_type) {
+                        case 'banned':
+                            tokenStatusClass = 'banned';
+                            tokenStatusText = '🚫 账号已封禁';
+                            cardClass = 'token-invalid';
+                            errorClass = 'banned';
+                            break;
+                        case 'unauthorized':
+                            tokenStatusClass = 'invalid';
+                            tokenStatusText = '✗ Token失效';
+                            cardClass = 'token-invalid';
+                            errorClass = '';
+                            break;
+                        case 'rate_limited':
+                            tokenStatusClass = 'rate_limited';
+                            tokenStatusText = '⚠️ 请求限流';
+                            cardClass = 'token-invalid';
+                            errorClass = 'rate_limited';
+                            break;
+                        default:
+                            tokenStatusClass = 'invalid';
+                            tokenStatusText = '✗ 错误';
+                            cardClass = 'token-invalid';
+                            errorClass = '';
+                    }
+                }
+
                 const tokenErrorHtml = team.token_valid ? '' : `
-                    <div class="token-error">
-                        <strong>错误:</strong> ${team.token_error || '无法连接到ChatGPT API'}
+                    <div class="token-error ${errorClass}">
+                        <strong>错误 (HTTP ${team.status_code}):</strong> ${team.token_error || '无法连接到ChatGPT API'}
+                        ${team.status_type === 'banned' ? '<br><strong>⚠️ 此账号已被永久封禁，请更换账号！</strong>' : ''}
+                        ${team.status_type === 'rate_limited' ? '<br><strong>💡 提示: 请稍后再试，或减少请求频率</strong>' : ''}
                     </div>
                 `;
 
