@@ -268,15 +268,29 @@ def admin_logout():
 @app.route('/api/admin/teams', methods=['GET'])
 @admin_required
 def get_teams():
-    """获取所有 Teams (新逻辑: 显示成员数)"""
+    """获取所有 Teams (新逻辑: 显示成员数和token状态)"""
     teams = Team.get_all()
 
-    # 为每个 Team 添加成员信息
+    # 为每个 Team 添加成员信息和token状态
     for team in teams:
         invitations = Invitation.get_by_team(team['id'])
         team['invitations'] = invitations
         team['member_count'] = len(set(inv['email'] for inv in invitations if inv['status'] == 'success'))
         team['available_slots'] = max(0, 4 - team['member_count'])
+
+        # 检测token是否有效
+        token_check = get_team_members(team['access_token'], team['account_id'])
+        if token_check['success']:
+            team['token_valid'] = True
+            team['token_status'] = 'valid'
+            # 获取实际成员数
+            actual_members = token_check.get('members', [])
+            team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
+        else:
+            team['token_valid'] = False
+            team['token_status'] = 'invalid'
+            team['token_error'] = token_check.get('error', '未知错误')
+            team['actual_member_count'] = 0
 
     return jsonify({"success": True, "teams": teams})
 
