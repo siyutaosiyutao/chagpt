@@ -696,7 +696,7 @@ def kick_team_member(team_id, user_id):
         success=True
     )
 
-    message = f"✅ 已从邀请列表中移除 {email}\n⏰ 自动踢人服务将在下次检测时踢出该成员"
+    message = f"已从邀请列表中移除 {email}，自动踢人服务将在下次检测时踢出该成员"
     return jsonify({"success": True, "message": message})
 
 
@@ -800,7 +800,7 @@ def kick_member_by_email(team_id):
         success=True
     )
 
-    message = f"✅ 已从邀请列表中移除 {email}\n⏰ 自动踢人服务将在下次检测时踢出该成员"
+    message = f"已从邀请列表中移除 {email}，自动踢人服务将在下次检测时踢出该成员"
     return jsonify({"success": True, "message": message})
 
 
@@ -923,7 +923,7 @@ def kick_member_by_email_auto():
         success=True
     )
 
-    message = f"✅ 已从 {found_team['name']} 的邀请列表中移除 {email}\n⏰ 自动踢人服务将在下次检测时踢出该成员"
+    message = f"已从 {found_team['name']} 的邀请列表中移除 {email}，自动踢人服务将在下次检测时踢出该成员"
     return jsonify({"success": True, "message": message})
 
 
