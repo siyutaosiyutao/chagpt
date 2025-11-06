@@ -52,8 +52,9 @@ def invite_to_team(access_token, account_id, email):
     }
     
     try:
-        response = cf_requests.post(url, headers=headers, json=payload, impersonate="chrome110")
-        
+        # 设置10秒超时，邀请请求可能稍慢
+        response = cf_requests.post(url, headers=headers, json=payload, impersonate="chrome110", timeout=10)
+
         if response.status_code in [200, 201]:
             data = response.json()
             invites = data.get('account_invites', [])
@@ -497,7 +498,8 @@ def get_team_members(access_token, account_id):
     }
 
     try:
-        response = cf_requests.get(url, headers=headers, impersonate="chrome110")
+        # 设置5秒超时，避免卡住整个请求
+        response = cf_requests.get(url, headers=headers, impersonate="chrome110", timeout=5)
 
         if response.status_code == 200:
             data = response.json()
@@ -566,7 +568,8 @@ def kick_member(access_token, account_id, user_id):
     }
 
     try:
-        response = cf_requests.delete(url, headers=headers, impersonate="chrome110")
+        # 设置10秒超时
+        response = cf_requests.delete(url, headers=headers, impersonate="chrome110", timeout=10)
 
         if response.status_code == 200:
             return {"success": True, "status_code": 200}
