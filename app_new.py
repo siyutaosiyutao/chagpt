@@ -116,15 +116,17 @@ def join_team():
             AccessKey.assign_team(key_info['id'], None)
             assigned_team_id = None
 
-    if not team:
-        available_teams = Team.get_available_teams()
-        if not available_teams:
-            return jsonify({"success": False, "error": "当前无可用 Team,请联系管理员"}), 400
-        team = available_teams[0]
-        AccessKey.assign_team(key_info['id'], team['id'])
+    # 获取所有可用team进行轮询
+    available_teams = Team.get_available_teams()
+    if not available_teams:
+        return jsonify({"success": False, "error": "当前无可用 Team,请联系管理员"}), 400
 
-    # 轮询所有可用team直到成功
-    available_teams = Team.get_available_teams() if not team else [team]
+    # 如果有已分配的team且可用，优先尝试它
+    if team and team in available_teams:
+        # 把已分配的team放到最前面
+        available_teams.remove(team)
+        available_teams.insert(0, team)
+
     last_error = None
 
     for try_team in available_teams:
@@ -141,9 +143,9 @@ def join_team():
             last_error = "该 Team 已达到人数上限"
             continue  # 尝试下一个team
 
-        # 检查该邮箱是否已在 Team 中
-        member_emails = [m.get('email') for m in members]
-        if email in member_emails:
+        # 检查该邮箱是否已在 Team 中（邮箱不区分大小写）
+        member_emails_lower = [m.get('email', '').lower() for m in members]
+        if email.lower() in member_emails_lower:
             last_error = f"该邮箱已在 {try_team['name']} 团队中"
             continue  # 尝试下一个team
 
