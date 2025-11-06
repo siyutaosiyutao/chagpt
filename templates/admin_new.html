@@ -864,16 +864,23 @@
                 if (data.success) {
                     progressText.textContent = `${totalTeams}/${totalTeams} 完成`;
 
+                    // 调试：打印返回数据
+                    console.log('检测结果:', data.teams);
+                    data.teams.forEach(t => {
+                        console.log(`Team ${t.name}: token_valid=${t.token_valid}, status_type=${t.status_type}`);
+                    });
+
                     // 显示结果
                     displayTeams(data.teams);
 
                     // 统计结果
                     const validCount = data.teams.filter(t => t.token_valid === true).length;
                     const invalidCount = data.teams.filter(t => t.token_valid === false).length;
+                    const unknownCount = data.teams.filter(t => t.token_valid === null).length;
 
                     setTimeout(() => {
                         progress.style.display = 'none';
-                        alert(`检测完成！\n✓ 有效: ${validCount} 个\n✗ 失效: ${invalidCount} 个`);
+                        alert(`检测完成！\n✓ 有效: ${validCount} 个\n✗ 失效: ${invalidCount} 个\n○ 未检测: ${unknownCount} 个`);
                     }, 500);
                 } else {
                     alert('检测失败: ' + data.error);

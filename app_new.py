@@ -298,15 +298,15 @@ def get_teams():
             if token_check['success']:
                 team['token_valid'] = True
                 team['token_status'] = 'active'
-                team['status_type'] = 'success'
+                team['status_type'] = 'active'
                 # 获取实际成员数
                 actual_members = token_check.get('members', [])
                 team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
             else:
                 team['token_valid'] = False
-                team['token_status'] = token_check.get('status', 'error')  # unauthorized/banned/rate_limited/error
-                team['status_type'] = token_check.get('status', 'error')
-                team['token_error'] = token_check.get('error', '未知错误')
+                team['token_status'] = 'invalid'
+                team['status_type'] = 'invalid'
+                team['token_error'] = token_check.get('error', 'Token已失效')
                 team['status_code'] = token_check.get('status_code', 0)
                 team['actual_member_count'] = 0
 
