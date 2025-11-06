@@ -679,7 +679,7 @@ def kick_team_member(team_id, user_id):
 def admin_invite_member(team_id):
     """管理员直接邀请成员"""
     data = request.json
-    email = data.get('email', '').strip()
+    email = data.get('email', '').strip().lower()  # 统一转为小写
     is_temp = data.get('is_temp', False)
     temp_hours = data.get('temp_hours', 24) if is_temp else 0
 
@@ -695,8 +695,9 @@ def admin_invite_member(team_id):
     if len(invited_emails) >= 4:
         return jsonify({"success": False, "error": "该 Team 已达到人数上限 (4人)"}), 400
 
-    # 检查该邮箱是否已被邀请
-    if email in invited_emails:
+    # 检查该邮箱是否已被邀请（大小写不敏感）
+    invited_emails_lower = [e.lower() for e in invited_emails]
+    if email in invited_emails_lower:
         return jsonify({"success": False, "error": "该邮箱已被邀请过"}), 400
 
     # 执行邀请
@@ -805,7 +806,7 @@ def kick_member_by_email(team_id):
 def admin_invite_auto():
     """管理员邀请成员(自动分配Team，失败自动重试下一个)"""
     data = request.json
-    email = data.get('email', '').strip()
+    email = data.get('email', '').strip().lower()  # 统一转为小写
     is_temp = data.get('is_temp', False)
     temp_hours = data.get('temp_hours', 24) if is_temp else 0
 
@@ -821,9 +822,10 @@ def admin_invite_auto():
     last_error = None
 
     for team in available_teams:
-        # 检查该邮箱是否已被邀请到该Team
+        # 检查该邮箱是否已被邀请到该Team（大小写不敏感）
         invited_emails = Invitation.get_all_emails_by_team(team['id'])
-        if email in invited_emails:
+        invited_emails_lower = [e.lower() for e in invited_emails]
+        if email in invited_emails_lower:
             last_error = f"该邮箱已在 {team['name']} 团队中"
             continue  # 尝试下一个team
 

@@ -140,10 +140,13 @@ class Team:
         with get_db() as conn:
             cursor = conn.cursor()
 
+            # 统一将邮箱转为小写存储
+            email_lower = email.lower() if email else email
+
             cursor.execute('''
                 INSERT INTO teams (name, account_id, access_token, organization_id, email)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (name, account_id, access_token, organization_id, email))
+            ''', (name, account_id, access_token, organization_id, email_lower))
             team_id = cursor.lastrowid
 
             return team_id
@@ -205,7 +208,8 @@ class Team:
                 params.append(access_token)
             if email is not None:
                 updates.append('email = ?')
-                params.append(email)
+                # 统一将邮箱转为小写存储
+                params.append(email.lower() if email else email)
 
             if updates:
                 updates.append('updated_at = CURRENT_TIMESTAMP')
@@ -341,11 +345,13 @@ class Invitation:
         """创建邀请记录"""
         with get_db() as conn:
             cursor = conn.cursor()
+            # 统一将邮箱转为小写存储，确保数据一致性
+            email_lower = email.lower() if email else email
             cursor.execute('''
                 INSERT INTO invitations (team_id, key_id, email, user_id, invite_id,
                                         status, is_temp, temp_expire_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (team_id, key_id, email, user_id, invite_id, status, is_temp, temp_expire_at))
+            ''', (team_id, key_id, email_lower, user_id, invite_id, status, is_temp, temp_expire_at))
             return cursor.lastrowid
 
     @staticmethod
@@ -493,10 +499,12 @@ class KickLog:
         """创建踢人日志"""
         with get_db() as conn:
             cursor = conn.cursor()
+            # 统一将邮箱转为小写存储
+            email_lower = email.lower() if email else email
             cursor.execute('''
                 INSERT INTO kick_logs (team_id, user_id, email, reason, success, error_message)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (team_id, user_id, email, reason, success, error_message))
+            ''', (team_id, user_id, email_lower, reason, success, error_message))
             return cursor.lastrowid
 
     @staticmethod
