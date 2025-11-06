@@ -630,7 +630,7 @@ def get_members(team_id):
 @app.route('/api/admin/teams/<int:team_id>/members/<user_id>', methods=['DELETE'])
 @admin_required
 def kick_team_member(team_id, user_id):
-    """踢出 Team 成员"""
+    """踢出 Team 成员（标记删除，由自动踢人服务处理）"""
     team = Team.get_by_id(team_id)
     if not team:
         return jsonify({"success": False, "error": "Team 不存在"}), 404
@@ -651,32 +651,25 @@ def kick_team_member(team_id, user_id):
     if not member:
         return jsonify({"success": False, "error": "成员不存在"}), 404
 
-    # 执行踢人
-    result = kick_member(team['access_token'], team['account_id'], user_id)
+    # 检查是否为所有者
+    if member.get('role') == 'account-owner':
+        return jsonify({"success": False, "error": "不能踢出团队所有者"}), 400
 
-    if result['success']:
-        # 从invitations表中删除记录，释放位置
-        Invitation.delete_by_email(team_id, member.get('email', ''))
+    # 从invitations表中删除记录（标记删除）
+    email = member.get('email', '')
+    Invitation.delete_by_email(team_id, email)
 
-        # 记录日志
-        KickLog.create(
-            team_id=team_id,
-            user_id=user_id,
-            email=member.get('email', 'unknown'),
-            reason='管理员手动踢出',
-            success=True
-        )
-        return jsonify({"success": True, "message": "成员已踢出"})
-    else:
-        KickLog.create(
-            team_id=team_id,
-            user_id=user_id,
-            email=member.get('email', 'unknown'),
-            reason='管理员手动踢出',
-            success=False,
-            error_message=result.get('error')
-        )
-        return jsonify({"success": False, "error": result.get('error')}), 500
+    # 记录日志
+    KickLog.create(
+        team_id=team_id,
+        user_id=user_id,
+        email=email,
+        reason='管理员标记删除，等待自动踢出',
+        success=True
+    )
+
+    message = f"✅ 已从邀请列表中移除 {email}\n⏰ 自动踢人服务将在下次检测时踢出该成员"
+    return jsonify({"success": True, "message": message})
 
 
 @app.route('/api/admin/teams/<int:team_id>/invite', methods=['POST'])
@@ -778,32 +771,20 @@ def kick_member_by_email(team_id):
 
     user_id = member.get('user_id') or member.get('id')
 
-    # 执行踢人
-    result = kick_member(team['access_token'], team['account_id'], user_id)
+    # 从invitations表中删除记录（标记删除）
+    Invitation.delete_by_email(team_id, email)
 
-    if result['success']:
-        # 从invitations表中删除记录，释放位置
-        Invitation.delete_by_email(team_id, email)
+    # 记录日志
+    KickLog.create(
+        team_id=team_id,
+        user_id=user_id,
+        email=email,
+        reason='管理员标记删除，等待自动踢出',
+        success=True
+    )
 
-        # 记录日志
-        KickLog.create(
-            team_id=team_id,
-            user_id=user_id,
-            email=email,
-            reason='管理员通过邮箱手动踢出',
-            success=True
-        )
-        return jsonify({"success": True, "message": f"已成功踢出 {email}"})
-    else:
-        KickLog.create(
-            team_id=team_id,
-            user_id=user_id,
-            email=email,
-            reason='管理员通过邮箱手动踢出',
-            success=False,
-            error_message=result.get('error')
-        )
-        return jsonify({"success": False, "error": result.get('error')}), 500
+    message = f"✅ 已从邀请列表中移除 {email}\n⏰ 自动踢人服务将在下次检测时踢出该成员"
+    return jsonify({"success": True, "message": message})
 
 
 @app.route('/api/admin/invite-auto', methods=['POST'])
@@ -925,35 +906,20 @@ def kick_member_by_email_auto():
 
     user_id = found_member.get('user_id') or found_member.get('id')
 
-    # 执行踢人
-    result = kick_member(found_team['access_token'], found_team['account_id'], user_id)
+    # 从invitations表中删除记录（标记删除）
+    Invitation.delete_by_email(found_team['id'], email)
 
-    if result['success']:
-        # 从invitations表中删除记录，释放位置
-        Invitation.delete_by_email(found_team['id'], email)
+    # 记录日志
+    KickLog.create(
+        team_id=found_team['id'],
+        user_id=user_id,
+        email=email,
+        reason='管理员标记删除，等待自动踢出',
+        success=True
+    )
 
-        # 记录日志
-        KickLog.create(
-            team_id=found_team['id'],
-            user_id=user_id,
-            email=email,
-            reason='管理员通过邮箱手动踢出',
-            success=True
-        )
-        return jsonify({
-            "success": True,
-            "message": f"已成功从 {found_team['name']} 踢出 {email}"
-        })
-    else:
-        KickLog.create(
-            team_id=found_team['id'],
-            user_id=user_id,
-            email=email,
-            reason='管理员通过邮箱手动踢出',
-            success=False,
-            error_message=result.get('error')
-        )
-        return jsonify({"success": False, "error": result.get('error')}), 500
+    message = f"✅ 已从 {found_team['name']} 的邀请列表中移除 {email}\n⏰ 自动踢人服务将在下次检测时踢出该成员"
+    return jsonify({"success": True, "message": message})
 
 
 @app.route('/api/admin/auto-kick/config', methods=['GET'])
