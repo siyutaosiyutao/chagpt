@@ -287,10 +287,24 @@ def get_teams():
         team['available_slots'] = max(0, 4 - team['member_count'])
 
         if skip_token_check:
-            # 快速模式：不检测token，设置为未知状态
-            team['token_valid'] = None
-            team['token_status'] = 'unknown'
-            team['status_type'] = 'unknown'
+            # 快速模式：从数据库读取上次检测的token状态
+            token_status = team.get('token_status', 'unknown')
+            last_check = team.get('last_token_check')
+
+            if token_status == 'active':
+                team['token_valid'] = True
+                team['token_status'] = 'active'
+                team['status_type'] = 'active'
+            elif token_status == 'invalid':
+                team['token_valid'] = False
+                team['token_status'] = 'invalid'
+                team['status_type'] = 'invalid'
+            else:
+                team['token_valid'] = None
+                team['token_status'] = 'unknown'
+                team['status_type'] = 'unknown'
+
+            team['last_token_check'] = last_check
             team['actual_member_count'] = None
         else:
             # 完整模式：检测token是否有效（可能很慢）
@@ -302,6 +316,8 @@ def get_teams():
                 # 获取实际成员数
                 actual_members = token_check.get('members', [])
                 team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
+                # 更新数据库
+                Team.update_token_status(team['id'], 'active')
             else:
                 team['token_valid'] = False
                 team['token_status'] = 'invalid'
@@ -309,6 +325,8 @@ def get_teams():
                 team['token_error'] = token_check.get('error', 'Token已失效')
                 team['status_code'] = token_check.get('status_code', 0)
                 team['actual_member_count'] = 0
+                # 更新数据库
+                Team.update_token_status(team['id'], 'invalid')
 
     return jsonify({"success": True, "teams": teams})
 

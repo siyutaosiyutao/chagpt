@@ -130,6 +130,17 @@ def init_db():
             ON login_attempts(ip_address, created_at)
         ''')
 
+        # 添加token状态字段（如果不存在）
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN token_status TEXT DEFAULT "unknown"')
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN last_token_check TIMESTAMP')
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
         conn.commit()
 
 
@@ -187,6 +198,17 @@ class Team:
                 SET access_token = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (access_token, team_id))
+
+    @staticmethod
+    def update_token_status(team_id, token_status):
+        """更新 Team 的 token 状态"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE teams
+                SET token_status = ?, last_token_check = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (token_status, team_id))
 
     @staticmethod
     def update_team_info(team_id, name=None, account_id=None, access_token=None, email=None):

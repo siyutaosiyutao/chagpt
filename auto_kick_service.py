@@ -131,7 +131,7 @@ class AutoKickService:
             print(f"   ⏰ {email} 的临时邀请已过期,准备踢出")
 
             # 获取成员列表,找到对应的 user_id
-            members = self._get_team_members(team['access_token'], team['account_id'])
+            members = self._get_team_members(team['access_token'], team['account_id'], team['id'])
             if not members:
                 continue
 
@@ -159,7 +159,7 @@ class AutoKickService:
         print(f"   已邀请邮箱数: {len(invited_emails)}")
 
         # 2. 获取当前 Team 成员
-        members = self._get_team_members(access_token, account_id)
+        members = self._get_team_members(access_token, account_id, team_id)
 
         if not members:
             print(f"   ⚠️  无法获取成员列表")
@@ -186,10 +186,10 @@ class AutoKickService:
                 print(f"   ⚠️  {member_email} (非法成员,准备踢出)")
                 self._kick_member(team, member_user_id, member_email, "未经邀请的成员")
     
-    def _get_team_members(self, access_token, account_id):
+    def _get_team_members(self, access_token, account_id, team_id=None):
         """获取 Team 成员列表"""
         url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users"
-        
+
         headers = {
             "accept": "*/*",
             "accept-language": "zh-CN,zh;q=0.9",
@@ -202,23 +202,38 @@ class AutoKickService:
             "referer": "https://chatgpt.com/admin",
             "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         }
-        
+
         try:
             response = cf_requests.get(url, headers=headers, impersonate="chrome110", timeout=10)
 
             if response.status_code == 200:
                 data = response.json()
                 # 统一使用account_users字段，与app_new.py保持一致
-                return data.get('account_users', [])
+                members = data.get('account_users', [])
+
+                # 更新数据库中的token状态
+                if team_id:
+                    Team.update_token_status(team_id, 'active')
+
+                return members
             elif response.status_code == 429:
                 print(f"   ⚠️  请求过于频繁,等待 5 分钟")
                 time.sleep(300)
+                # 429也表示token有效，只是请求太频繁
+                if team_id:
+                    Team.update_token_status(team_id, 'active')
                 return None
             else:
                 print(f"   ❌ 获取成员列表失败: {response.status_code}")
+                # 其他状态码表示token失效
+                if team_id:
+                    Team.update_token_status(team_id, 'invalid')
                 return None
         except Exception as e:
             print(f"   ❌ 获取成员列表出错: {str(e)}")
+            # 异常也认为token失效
+            if team_id:
+                Team.update_token_status(team_id, 'invalid')
             return None
     
     def _kick_member(self, team, user_id, email, reason):
