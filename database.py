@@ -395,11 +395,12 @@ class Invitation:
         """获取所有已过期的临时邀请"""
         with get_db() as conn:
             cursor = conn.cursor()
+            # 使用北京时间进行比较，因为temp_expire_at存储的是北京时间
             cursor.execute('''
                 SELECT * FROM invitations
                 WHERE is_temp = 1
                   AND is_confirmed = 0
-                  AND temp_expire_at < datetime('now')
+                  AND temp_expire_at < datetime('now', '+8 hours')
                 ORDER BY temp_expire_at
             ''')
             return [dict(row) for row in cursor.fetchall()]
