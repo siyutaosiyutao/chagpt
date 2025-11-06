@@ -927,38 +927,15 @@
                     tokenStatusText = '○ 未检测';
                     cardClass = '';
                 } else {
-                    switch(team.status_type) {
-                        case 'banned':
-                            tokenStatusClass = 'banned';
-                            tokenStatusText = '🚫 账号已封禁';
-                            cardClass = 'token-invalid';
-                            errorClass = 'banned';
-                            break;
-                        case 'unauthorized':
-                            tokenStatusClass = 'invalid';
-                            tokenStatusText = '✗ Token失效';
-                            cardClass = 'token-invalid';
-                            errorClass = '';
-                            break;
-                        case 'rate_limited':
-                            tokenStatusClass = 'rate_limited';
-                            tokenStatusText = '⚠️ 请求限流';
-                            cardClass = 'token-invalid';
-                            errorClass = 'rate_limited';
-                            break;
-                        default:
-                            tokenStatusClass = 'invalid';
-                            tokenStatusText = '✗ 错误';
-                            cardClass = 'token-invalid';
-                            errorClass = '';
-                    }
+                    // 所有失败情况统一显示为Token失效
+                    tokenStatusClass = 'invalid';
+                    tokenStatusText = '✗ Token失效';
+                    cardClass = 'token-invalid';
                 }
 
                 const tokenErrorHtml = (team.token_valid === false) ? `
-                    <div class="token-error ${errorClass}">
-                        <strong>错误 (HTTP ${team.status_code}):</strong> ${team.token_error || '无法连接到ChatGPT API'}
-                        ${team.status_type === 'banned' ? '<br><strong>⚠️ 此账号已被永久封禁，请更换账号！</strong>' : ''}
-                        ${team.status_type === 'rate_limited' ? '<br><strong>💡 提示: 请稍后再试，或减少请求频率</strong>' : ''}
+                    <div class="token-error">
+                        <strong>Token已失效</strong>，请在管理后台更新Token
                     </div>
                 ` : '';
 

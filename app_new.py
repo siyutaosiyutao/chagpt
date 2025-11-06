@@ -185,10 +185,10 @@ def join_team():
             # 更新邀请码绑定的team
             AccessKey.assign_team(key_info['id'], try_team['id'])
 
-            message = f"🎉 成功加入 {try_team['name']} 团队！\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
+            message = f"成功加入 {try_team['name']} 团队！请立即查收邮箱 {email} 的邀请邮件并确认加入。提示：邮件可能在垃圾箱中。"
 
             if key_info['is_temp'] and key_info['temp_hours'] > 0:
-                message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
+                message += f" 注意：这是 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认将自动踢出。"
 
             return jsonify({
                 "success": True,
@@ -526,7 +526,7 @@ def confirm_invitation(invitation_id):
 
 
 def get_team_members(access_token, account_id):
-    """获取 Team 成员列表（增强版：检测封禁、限流等状态）"""
+    """获取 Team 成员列表（简化版：只区分有效/失效）"""
     url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users"
 
     headers = {
@@ -551,47 +551,20 @@ def get_team_members(access_token, account_id):
                 "status_code": 200,
                 "status": "active"
             }
-        elif response.status_code == 401:
-            # Token失效或过期
-            return {
-                "success": False,
-                "error": "Token已失效或过期",
-                "status_code": 401,
-                "status": "unauthorized",
-                "detail": response.text
-            }
-        elif response.status_code == 403:
-            # 账号被封禁
-            return {
-                "success": False,
-                "error": "账号已被封禁",
-                "status_code": 403,
-                "status": "banned",
-                "detail": response.text
-            }
-        elif response.status_code == 429:
-            # 请求过于频繁
-            return {
-                "success": False,
-                "error": "请求过于频繁，已被限流",
-                "status_code": 429,
-                "status": "rate_limited",
-                "detail": response.text
-            }
         else:
+            # 所有非200状态码都视为Token失效
             return {
                 "success": False,
-                "error": f"未知错误 (HTTP {response.status_code})",
+                "error": "Token已失效",
                 "status_code": response.status_code,
-                "status": "error",
-                "detail": response.text
+                "status": "invalid"
             }
     except Exception as e:
         return {
             "success": False,
-            "error": f"网络错误: {str(e)}",
+            "error": "Token已失效",
             "status_code": 0,
-            "status": "network_error"
+            "status": "invalid"
         }
 
 
