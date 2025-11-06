@@ -316,17 +316,29 @@ def get_teams():
                 # 获取实际成员数
                 actual_members = token_check.get('members', [])
                 team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
-                # 更新数据库
-                Team.update_token_status(team['id'], 'active')
+                # 更新数据库（成功，重置失败计数）
+                Team.update_token_status(team['id'], True)
             else:
-                team['token_valid'] = False
-                team['token_status'] = 'invalid'
-                team['status_type'] = 'invalid'
-                team['token_error'] = token_check.get('error', 'Token已失效')
+                # 检测失败，记录失败次数
+                Team.update_token_status(team['id'], False)
+
+                # 从数据库读取当前状态（可能还没达到10次失败）
+                updated_team = Team.get_by_id(team['id'])
+                team['token_status'] = updated_team.get('token_status', 'unknown')
+                team['token_fail_count'] = updated_team.get('token_fail_count', 0)
+
+                # UI显示逻辑
+                if team['token_status'] == 'invalid':
+                    team['token_valid'] = False
+                    team['status_type'] = 'invalid'
+                else:
+                    # 还未达到10次失败，保持原状态或显示为警告
+                    team['token_valid'] = None
+                    team['status_type'] = 'warning'
+
+                team['token_error'] = token_check.get('error', 'Token检测失败')
                 team['status_code'] = token_check.get('status_code', 0)
                 team['actual_member_count'] = 0
-                # 更新数据库
-                Team.update_token_status(team['id'], 'invalid')
 
     return jsonify({"success": True, "teams": teams})
 

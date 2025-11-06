@@ -211,9 +211,9 @@ class AutoKickService:
                 # 统一使用account_users字段，与app_new.py保持一致
                 members = data.get('account_users', [])
 
-                # 更新数据库中的token状态
+                # 更新数据库中的token状态（成功）
                 if team_id:
-                    Team.update_token_status(team_id, 'active')
+                    Team.update_token_status(team_id, True)
 
                 return members
             elif response.status_code == 429:
@@ -221,19 +221,19 @@ class AutoKickService:
                 time.sleep(300)
                 # 429也表示token有效，只是请求太频繁
                 if team_id:
-                    Team.update_token_status(team_id, 'active')
+                    Team.update_token_status(team_id, True)
                 return None
             else:
                 print(f"   ❌ 获取成员列表失败: {response.status_code}")
-                # 其他状态码表示token失效
+                # 其他状态码：记录失败（连续失败10次后才标记为失效）
                 if team_id:
-                    Team.update_token_status(team_id, 'invalid')
+                    Team.update_token_status(team_id, False)
                 return None
         except Exception as e:
             print(f"   ❌ 获取成员列表出错: {str(e)}")
-            # 异常也认为token失效
+            # 异常：记录失败（连续失败10次后才标记为失效）
             if team_id:
-                Team.update_token_status(team_id, 'invalid')
+                Team.update_token_status(team_id, False)
             return None
     
     def _kick_member(self, team, user_id, email, reason):

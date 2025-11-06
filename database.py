@@ -141,6 +141,11 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # 列已存在
 
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN token_fail_count INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
         conn.commit()
 
 
@@ -200,15 +205,43 @@ class Team:
             ''', (access_token, team_id))
 
     @staticmethod
-    def update_token_status(team_id, token_status):
-        """更新 Team 的 token 状态"""
+    def update_token_status(team_id, is_success):
+        """更新 Team 的 token 状态（支持连续失败计数）
+
+        Args:
+            team_id: Team ID
+            is_success: True=检测成功, False=检测失败
+        """
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE teams
-                SET token_status = ?, last_token_check = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (token_status, team_id))
+
+            if is_success:
+                # 检测成功：重置失败计数，标记为active
+                cursor.execute('''
+                    UPDATE teams
+                    SET token_status = 'active',
+                        token_fail_count = 0,
+                        last_token_check = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (team_id,))
+            else:
+                # 检测失败：增加失败计数
+                cursor.execute('''
+                    UPDATE teams
+                    SET token_fail_count = COALESCE(token_fail_count, 0) + 1,
+                        last_token_check = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (team_id,))
+
+                # 检查失败次数，如果 >= 10 次则标记为失效
+                cursor.execute('SELECT token_fail_count FROM teams WHERE id = ?', (team_id,))
+                row = cursor.fetchone()
+                if row and row[0] >= 10:
+                    cursor.execute('''
+                        UPDATE teams
+                        SET token_status = 'invalid'
+                        WHERE id = ?
+                    ''', (team_id,))
 
     @staticmethod
     def update_team_info(team_id, name=None, account_id=None, access_token=None, email=None):
