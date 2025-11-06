@@ -121,11 +121,13 @@ def join_team():
     if not available_teams:
         return jsonify({"success": False, "error": "当前无可用 Team,请联系管理员"}), 400
 
-    # 如果有已分配的team且可用，优先尝试它
-    if team and team in available_teams:
-        # 把已分配的team放到最前面
-        available_teams.remove(team)
-        available_teams.insert(0, team)
+    # 如果有已分配的team且可用，优先尝试它（按id比较，不是对象引用）
+    if team:
+        assigned_team_index = next((i for i, t in enumerate(available_teams) if t['id'] == team['id']), None)
+        if assigned_team_index is not None:
+            # 把已分配的team放到最前面
+            assigned_team = available_teams.pop(assigned_team_index)
+            available_teams.insert(0, assigned_team)
 
     last_error = None
 
