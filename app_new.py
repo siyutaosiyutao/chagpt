@@ -635,29 +635,15 @@ def kick_team_member(team_id, user_id):
     if not team:
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
-    # 获取成员信息
-    members_result = get_team_members(team['access_token'], team['account_id'])
-    if not members_result['success']:
-        return jsonify({"success": False, "error": "无法获取成员列表"}), 500
+    # 从invitations表查找该user_id的记录
+    invitation = Invitation.get_by_user_id(team_id, user_id)
+    if not invitation:
+        return jsonify({"success": False, "error": "该成员不在邀请列表中"}), 404
 
-    # 找到要踢的成员（安全访问user_id字段）
-    member = None
-    for m in members_result['members']:
-        m_user_id = m.get('user_id') or m.get('id')
-        if m_user_id == user_id:
-            member = m
-            break
-
-    if not member:
-        return jsonify({"success": False, "error": "成员不存在"}), 404
-
-    # 检查是否为所有者
-    if member.get('role') == 'account-owner':
-        return jsonify({"success": False, "error": "不能踢出团队所有者"}), 400
+    email = invitation['email']
 
     # 从invitations表中删除记录（标记删除）
-    email = member.get('email', '')
-    Invitation.delete_by_email(team_id, email)
+    Invitation.delete_by_user_id(team_id, user_id)
 
     # 记录日志
     KickLog.create(
@@ -753,23 +739,12 @@ def kick_member_by_email(team_id):
     if not team:
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
-    # 获取成员列表
-    members_result = get_team_members(team['access_token'], team['account_id'])
-    if not members_result['success']:
-        return jsonify({"success": False, "error": "无法获取成员列表"}), 500
+    # 从invitations表查找该email的记录
+    invitation = Invitation.get_by_team_and_email(team_id, email)
+    if not invitation:
+        return jsonify({"success": False, "error": f"邮箱 {email} 不在邀请列表中"}), 404
 
-    # 查找匹配的成员
-    member = next((m for m in members_result['members']
-                   if m.get('email', '').lower() == email), None)
-
-    if not member:
-        return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员"}), 404
-
-    # 检查是否为所有者
-    if member.get('role') == 'account-owner':
-        return jsonify({"success": False, "error": "不能踢出团队所有者"}), 400
-
-    user_id = member.get('user_id') or member.get('id')
+    user_id = invitation.get('user_id', '')
 
     # 从invitations表中删除记录（标记删除）
     Invitation.delete_by_email(team_id, email)
@@ -878,33 +853,21 @@ def kick_member_by_email_auto():
     if not teams:
         return jsonify({"success": False, "error": "当前没有 Team"}), 404
 
-    # 遍历所有Team查找该成员
+    # 遍历所有Team，在invitations表中查找该邮箱
     found_team = None
-    found_member = None
+    found_invitation = None
 
     for team in teams:
-        # 获取成员列表
-        members_result = get_team_members(team['access_token'], team['account_id'])
-        if not members_result['success']:
-            continue
-
-        # 查找匹配的成员
-        member = next((m for m in members_result['members']
-                       if m.get('email', '').lower() == email), None)
-
-        if member:
+        invitation = Invitation.get_by_team_and_email(team['id'], email)
+        if invitation:
             found_team = team
-            found_member = member
+            found_invitation = invitation
             break
 
-    if not found_team or not found_member:
-        return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员"}), 404
+    if not found_team or not found_invitation:
+        return jsonify({"success": False, "error": f"邮箱 {email} 不在任何Team的邀请列表中"}), 404
 
-    # 检查是否为所有者
-    if found_member.get('role') == 'account-owner':
-        return jsonify({"success": False, "error": "不能踢出团队所有者"}), 400
-
-    user_id = found_member.get('user_id') or found_member.get('id')
+    user_id = found_invitation.get('user_id', '')
 
     # 从invitations表中删除记录（标记删除）
     Invitation.delete_by_email(found_team['id'], email)

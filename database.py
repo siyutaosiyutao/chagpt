@@ -391,6 +391,19 @@ class Invitation:
             return [row[0] for row in cursor.fetchall()]
 
     @staticmethod
+    def get_by_team_and_email(team_id, email):
+        """根据team_id和email获取邀请记录"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM invitations
+                WHERE team_id = ? AND LOWER(email) = LOWER(?)
+                LIMIT 1
+            ''', (team_id, email))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
     def get_temp_expired():
         """获取所有已过期的临时邀请"""
         with get_db() as conn:
@@ -436,6 +449,17 @@ class Invitation:
                 DELETE FROM invitations
                 WHERE team_id = ? AND LOWER(email) = LOWER(?)
             ''', (team_id, email))
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def delete_by_user_id(team_id, user_id):
+        """删除指定team中指定user_id的邀请记录"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                DELETE FROM invitations
+                WHERE team_id = ? AND user_id = ?
+            ''', (team_id, user_id))
             return cursor.rowcount > 0
 
     @staticmethod
