@@ -174,6 +174,11 @@
             color: white;
         }
 
+        .token-status.unknown {
+            background-color: #868e96;
+            color: white;
+        }
+
         .token-status.invalid {
             background-color: #ff6b6b;
             color: white;
@@ -912,9 +917,14 @@
                 // 根据状态类型设置不同的样式和文本
                 let tokenStatusClass, tokenStatusText, cardClass, errorClass;
 
-                if (team.token_valid) {
+                if (team.token_valid === true) {
                     tokenStatusClass = 'valid';
                     tokenStatusText = '✓ Token有效';
+                    cardClass = '';
+                } else if (team.token_valid === null || team.status_type === 'unknown') {
+                    // 快速加载模式：未检测token状态
+                    tokenStatusClass = 'unknown';
+                    tokenStatusText = '○ 未检测';
                     cardClass = '';
                 } else {
                     switch(team.status_type) {
@@ -944,20 +954,25 @@
                     }
                 }
 
-                const tokenErrorHtml = team.token_valid ? '' : `
+                const tokenErrorHtml = (team.token_valid === false) ? `
                     <div class="token-error ${errorClass}">
                         <strong>错误 (HTTP ${team.status_code}):</strong> ${team.token_error || '无法连接到ChatGPT API'}
                         ${team.status_type === 'banned' ? '<br><strong>⚠️ 此账号已被永久封禁，请更换账号！</strong>' : ''}
                         ${team.status_type === 'rate_limited' ? '<br><strong>💡 提示: 请稍后再试，或减少请求频率</strong>' : ''}
                     </div>
-                `;
+                ` : '';
+
+                // 成员数显示：优先显示actual（实际），未检测时显示member_count（数据库统计）
+                const memberCountDisplay = team.actual_member_count !== null && team.actual_member_count !== undefined
+                    ? team.actual_member_count
+                    : team.member_count;
 
                 html += `
                     <div class="team-card ${cardClass}">
                         <span class="token-status ${tokenStatusClass}">${tokenStatusText}</span>
                         <div class="team-header">
                             <h3>${team.name}</h3>
-                            <span class="badge">${team.actual_member_count}/4 人</span>
+                            <span class="badge">${memberCountDisplay}/4 人</span>
                         </div>
                         <div class="team-info">
                             <p><strong>邮箱:</strong> ${team.email || '未设置'}</p>
