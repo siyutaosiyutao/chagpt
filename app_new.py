@@ -273,34 +273,76 @@ def admin_logout():
 @app.route('/api/admin/teams', methods=['GET'])
 @admin_required
 def get_teams():
-    """获取所有 Teams (新逻辑: 显示成员数和token状态)"""
+    """获取所有 Teams (快速模式: 只显示基本信息，不检测token)"""
+    # 添加skip_token_check参数，允许跳过token检测
+    skip_token_check = request.args.get('skip_token_check', 'true').lower() == 'true'
+
     teams = Team.get_all()
 
-    # 为每个 Team 添加成员信息和token状态
+    # 为每个 Team 添加成员信息
     for team in teams:
         invitations = Invitation.get_by_team(team['id'])
         team['invitations'] = invitations
         team['member_count'] = len(set(inv['email'] for inv in invitations if inv['status'] == 'success'))
         team['available_slots'] = max(0, 4 - team['member_count'])
 
-        # 检测token是否有效（包含封禁、限流等状态）
-        token_check = get_team_members(team['access_token'], team['account_id'])
-        if token_check['success']:
-            team['token_valid'] = True
-            team['token_status'] = 'active'
-            team['status_type'] = 'success'
-            # 获取实际成员数
-            actual_members = token_check.get('members', [])
-            team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
+        if skip_token_check:
+            # 快速模式：不检测token，设置为未知状态
+            team['token_valid'] = None
+            team['token_status'] = 'unknown'
+            team['status_type'] = 'unknown'
+            team['actual_member_count'] = None
         else:
-            team['token_valid'] = False
-            team['token_status'] = token_check.get('status', 'error')  # unauthorized/banned/rate_limited/error
-            team['status_type'] = token_check.get('status', 'error')
-            team['token_error'] = token_check.get('error', '未知错误')
-            team['status_code'] = token_check.get('status_code', 0)
-            team['actual_member_count'] = 0
+            # 完整模式：检测token是否有效（可能很慢）
+            token_check = get_team_members(team['access_token'], team['account_id'])
+            if token_check['success']:
+                team['token_valid'] = True
+                team['token_status'] = 'active'
+                team['status_type'] = 'success'
+                # 获取实际成员数
+                actual_members = token_check.get('members', [])
+                team['actual_member_count'] = len([m for m in actual_members if m.get('role') != 'account-owner'])
+            else:
+                team['token_valid'] = False
+                team['token_status'] = token_check.get('status', 'error')  # unauthorized/banned/rate_limited/error
+                team['status_type'] = token_check.get('status', 'error')
+                team['token_error'] = token_check.get('error', '未知错误')
+                team['status_code'] = token_check.get('status_code', 0)
+                team['actual_member_count'] = 0
 
     return jsonify({"success": True, "teams": teams})
+
+
+@app.route('/api/admin/teams/<int:team_id>/check-token', methods=['GET'])
+@admin_required
+def check_team_token(team_id):
+    """检测单个Team的token状态（按需检测）"""
+    team = Team.get_by_id(team_id)
+    if not team:
+        return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+    # 检测token是否有效
+    token_check = get_team_members(team['access_token'], team['account_id'])
+
+    if token_check['success']:
+        actual_members = token_check.get('members', [])
+        return jsonify({
+            "success": True,
+            "token_valid": True,
+            "token_status": "active",
+            "status_type": "success",
+            "actual_member_count": len([m for m in actual_members if m.get('role') != 'account-owner'])
+        })
+    else:
+        return jsonify({
+            "success": True,
+            "token_valid": False,
+            "token_status": token_check.get('status', 'error'),
+            "status_type": token_check.get('status', 'error'),
+            "token_error": token_check.get('error', '未知错误'),
+            "status_code": token_check.get('status_code', 0),
+            "actual_member_count": 0
+        })
 
 
 @app.route('/api/admin/teams', methods=['POST'])
