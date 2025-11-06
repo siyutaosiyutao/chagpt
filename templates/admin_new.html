@@ -502,7 +502,15 @@
 
         <!-- Teams 列表 -->
         <div class="section">
-            <h2>📋 Teams 列表</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>📋 Teams 列表</h2>
+                <button onclick="checkAllTokens()" class="btn" id="checkTokenBtn">
+                    🔄 检测所有Token状态
+                </button>
+            </div>
+            <div id="checkProgress" style="display: none; margin-bottom: 15px; padding: 10px; background: #e7f5ff; border-radius: 8px; color: #1971c2;">
+                <strong>检测中...</strong> <span id="progressText">0/0</span>
+            </div>
             <div id="teamsList">加载中...</div>
         </div>
 
@@ -827,6 +835,55 @@
                 }
             } catch (error) {
                 console.error('加载 Teams 失败:', error);
+            }
+        }
+
+        // 检测所有Token状态
+        async function checkAllTokens() {
+            const btn = document.getElementById('checkTokenBtn');
+            const progress = document.getElementById('checkProgress');
+            const progressText = document.getElementById('progressText');
+
+            // 禁用按钮，显示进度
+            btn.disabled = true;
+            btn.textContent = '⏳ 检测中...';
+            progress.style.display = 'block';
+
+            try {
+                // 先获取teams数量
+                const teamsResponse = await fetch('/api/admin/teams');
+                const teamsData = await teamsResponse.json();
+                const totalTeams = teamsData.teams.length;
+
+                progressText.textContent = `0/${totalTeams}`;
+
+                // 调用完整检测模式
+                const response = await fetch('/api/admin/teams?skip_token_check=false');
+                const data = await response.json();
+
+                if (data.success) {
+                    progressText.textContent = `${totalTeams}/${totalTeams} 完成`;
+
+                    // 显示结果
+                    displayTeams(data.teams);
+
+                    // 统计结果
+                    const validCount = data.teams.filter(t => t.token_valid === true).length;
+                    const invalidCount = data.teams.filter(t => t.token_valid === false).length;
+
+                    setTimeout(() => {
+                        progress.style.display = 'none';
+                        alert(`检测完成！\n✓ 有效: ${validCount} 个\n✗ 失效: ${invalidCount} 个`);
+                    }, 500);
+                } else {
+                    alert('检测失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('检测失败: ' + error.message);
+            } finally {
+                // 恢复按钮状态
+                btn.disabled = false;
+                btn.textContent = '🔄 检测所有Token状态';
             }
         }
 
