@@ -548,7 +548,7 @@ def get_team_members(access_token, account_id):
 
 
 def kick_member(access_token, account_id, user_id):
-    """踢出成员"""
+    """踢出成员（增强版：详细错误处理）"""
     url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users/{user_id}"
 
     headers = {
@@ -563,12 +563,26 @@ def kick_member(access_token, account_id, user_id):
 
     try:
         response = cf_requests.delete(url, headers=headers, impersonate="chrome110")
+
         if response.status_code == 200:
-            return {"success": True}
+            return {"success": True, "status_code": 200}
+        elif response.status_code == 401:
+            return {"success": False, "error": "Token已失效", "status_code": 401, "status": "unauthorized"}
+        elif response.status_code == 403:
+            return {"success": False, "error": "账号已被封禁或无权限", "status_code": 403, "status": "banned"}
+        elif response.status_code == 404:
+            return {"success": False, "error": "成员不存在", "status_code": 404, "status": "not_found"}
+        elif response.status_code == 429:
+            return {"success": False, "error": "请求过于频繁", "status_code": 429, "status": "rate_limited"}
         else:
-            return {"success": False, "error": response.text}
+            return {
+                "success": False,
+                "error": f"未知错误 (HTTP {response.status_code})",
+                "status_code": response.status_code,
+                "detail": response.text
+            }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"网络错误: {str(e)}", "status_code": 0}
 
 
 @app.route('/api/admin/teams/<int:team_id>/members', methods=['GET'])
@@ -584,7 +598,10 @@ def get_members(team_id):
     # 为每个成员添加临时邀请信息
     if result['success']:
         for member in result['members']:
-            invitation = Invitation.get_by_user_id(team_id, member['user_id'])
+            # 安全获取user_id
+            user_id = member.get('user_id') or member.get('id')
+            invitation = Invitation.get_by_user_id(team_id, user_id) if user_id else None
+
             if invitation:
                 member['invitation_id'] = invitation['id']
                 member['is_temp'] = invitation['is_temp']
@@ -595,6 +612,10 @@ def get_members(team_id):
                 member['is_temp'] = False
                 member['is_confirmed'] = False
                 member['temp_expire_at'] = None
+
+            # 确保member有user_id字段（统一字段名）
+            if 'user_id' not in member and 'id' in member:
+                member['user_id'] = member['id']
 
     return jsonify(result)
 
@@ -612,8 +633,14 @@ def kick_team_member(team_id, user_id):
     if not members_result['success']:
         return jsonify({"success": False, "error": "无法获取成员列表"}), 500
 
-    # 找到要踢的成员
-    member = next((m for m in members_result['members'] if m['user_id'] == user_id), None)
+    # 找到要踢的成员（安全访问user_id字段）
+    member = None
+    for m in members_result['members']:
+        m_user_id = m.get('user_id') or m.get('id')
+        if m_user_id == user_id:
+            member = m
+            break
+
     if not member:
         return jsonify({"success": False, "error": "成员不存在"}), 404
 
