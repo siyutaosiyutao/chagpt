@@ -921,13 +921,32 @@
         }
 
         // 邀请成员
+        let isInviting = false; // 防止重复提交
+        
         async function inviteMember(e) {
             e.preventDefault();
+
+            // 防止重复提交
+            if (isInviting) {
+                alert('正在邀请中，请稍候...');
+                return;
+            }
 
             const teamId = document.getElementById('invite_team_id').value;
             const email = document.getElementById('invite_email').value.trim();
             const isTemp = document.getElementById('invite_is_temp').checked;
             const tempHours = parseInt(document.getElementById('invite_temp_hours').value) || 24;
+
+            if (!email) {
+                alert('请输入邮箱');
+                return;
+            }
+
+            isInviting = true;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '邀请中...';
 
             try {
                 const response = await fetch(`/api/admin/teams/${teamId}/invite`, {
@@ -947,6 +966,10 @@
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);
+            } finally {
+                isInviting = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
         }
 

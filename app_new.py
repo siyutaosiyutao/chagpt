@@ -180,7 +180,70 @@ def join_team():
             "email": email
         })
     else:
-        # 记录失败的邀请
+        # 邀请 API 返回失败，验证是否实际成功
+        import time
+        time.sleep(2)  # 等待 API 同步
+        
+        # 1. 检查是否在 pending 列表中
+        pending_result = get_pending_invites(team['access_token'], team['account_id'])
+        if pending_result['success']:
+            pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
+            if email.lower() in pending_emails:
+                # 实际已成功（在 pending 列表中）
+                temp_expire_at = None
+                if key_info['is_temp'] and key_info['temp_hours'] > 0:
+                    beijing_tz = pytz.timezone('Asia/Shanghai')
+                    now = datetime.now(beijing_tz)
+                    temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
+                
+                Invitation.create(
+                    team_id=team['id'],
+                    email=email,
+                    key_id=key_info['id'],
+                    invite_id=None,
+                    status='success',
+                    is_temp=key_info['is_temp'],
+                    temp_expire_at=temp_expire_at
+                )
+                Team.update_last_invite(team['id'])
+                
+                message = f"🎉 成功加入 {team['name']} 团队！（验证确认）\n\n📧 请立即查收邮箱 {email} 的邀请邮件并确认加入。\n\n💡 提示：邮件可能在垃圾箱中，请注意查看。"
+                if key_info['is_temp'] and key_info['temp_hours'] > 0:
+                    message += f"\n\n⏰ 注意：这是一个 {key_info['temp_hours']} 小时临时邀请，到期后如果管理员未确认，将自动踢出。"
+                
+                return jsonify({
+                    "success": True,
+                    "message": message,
+                    "team_name": team['name'],
+                    "email": email,
+                    "verified": True
+                })
+        
+        # 2. 检查是否已在成员列表中
+        members_result = get_team_members(team['access_token'], team['account_id'])
+        if members_result['success']:
+            member_emails = [m.get('email', '').lower() for m in members_result.get('members', [])]
+            if email.lower() in member_emails:
+                # 已经是成员了
+                Invitation.create(
+                    team_id=team['id'],
+                    email=email,
+                    key_id=key_info['id'],
+                    status='success',
+                    is_temp=False,
+                    temp_expire_at=None
+                )
+                Team.update_last_invite(team['id'])
+                
+                return jsonify({
+                    "success": True,
+                    "message": f"✅ 您已是 {team['name']} 团队成员！",
+                    "team_name": team['name'],
+                    "email": email,
+                    "already_member": True
+                })
+        
+        # 3. 确实失败
         Invitation.create(
             team_id=team['id'],
             email=email,
@@ -191,7 +254,7 @@ def join_team():
         return jsonify({
             "success": False,
             "error": f"邀请失败: {result.get('error', '未知错误')}"
-    }), 500
+        }), 500
 
 
 # ==================== 管理员端路由 ====================
@@ -464,7 +527,32 @@ def get_team_members(access_token, account_id):
         response = cf_requests.get(url, headers=headers, impersonate="chrome110")
         if response.status_code == 200:
             data = response.json()
-            return {"success": True, "members": data.get('account_users', [])}
+            return {"success": True, "members": data.get('items', [])}
+        else:
+            return {"success": False, "error": response.text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_pending_invites(access_token, account_id):
+    """获取待处理的邀请列表"""
+    url = f"https://chatgpt.com/backend-api/accounts/{account_id}/invites"
+
+    headers = {
+        "accept": "*/*",
+        "accept-language": "zh-CN,zh;q=0.9",
+        "authorization": f"Bearer {access_token}",
+        "chatgpt-account-id": account_id,
+        "origin": "https://chatgpt.com",
+        "referer": "https://chatgpt.com/admin",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    }
+
+    try:
+        response = cf_requests.get(url, headers=headers, impersonate="chrome110")
+        if response.status_code == 200:
+            data = response.json()
+            return {"success": True, "invites": data.get('items', [])}
         else:
             return {"success": False, "error": response.text}
     except Exception as e:
@@ -624,6 +712,59 @@ def admin_invite_member(team_id):
             "invite_id": result.get('invite_id')
         })
     else:
+        # 邀请 API 返回失败，验证是否实际成功
+        import time
+        time.sleep(2)  # 等待 API 同步
+        
+        # 1. 检查是否在 pending 列表中
+        pending_result = get_pending_invites(team['access_token'], team['account_id'])
+        if pending_result['success']:
+            pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
+            if email.lower() in pending_emails:
+                # 实际已成功（在 pending 列表中）
+                temp_expire_at = None
+                if is_temp and temp_hours > 0:
+                    beijing_tz = pytz.timezone('Asia/Shanghai')
+                    now = datetime.now(beijing_tz)
+                    temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+                
+                Invitation.create(
+                    team_id=team_id,
+                    email=email,
+                    status='success',
+                    is_temp=is_temp,
+                    temp_expire_at=temp_expire_at
+                )
+                Team.update_last_invite(team_id)
+                
+                return jsonify({
+                    "success": True,
+                    "message": f"已成功邀请 {email}（验证确认）",
+                    "verified": True
+                })
+        
+        # 2. 检查是否已在成员列表中
+        members_result = get_team_members(team['access_token'], team['account_id'])
+        if members_result['success']:
+            member_emails = [m.get('email', '').lower() for m in members_result.get('members', [])]
+            if email.lower() in member_emails:
+                # 已经是成员了
+                Invitation.create(
+                    team_id=team_id,
+                    email=email,
+                    status='success',
+                    is_temp=is_temp,
+                    temp_expire_at=None
+                )
+                Team.update_last_invite(team_id)
+                
+                return jsonify({
+                    "success": True,
+                    "message": f"{email} 已是团队成员",
+                    "already_member": True
+                })
+        
+        # 3. 确实失败
         Invitation.create(
             team_id=team_id,
             email=email,
@@ -903,13 +1044,38 @@ def get_kick_logs():
 @app.route('/api/admin/auto-kick/check-now', methods=['POST'])
 @admin_required
 def check_now():
-    """立即执行一次检测"""
+    """立即执行一次检测（优化版本）"""
     try:
-        # 在新线程中执行检测
+        # 检查是否已有检测任务在运行
+        if auto_kick_service.is_checking():
+            return jsonify({
+                "success": False,
+                "error": "检测任务已在运行中，请稍后再试"
+            }), 409
+        
+        # 使用 daemon 线程
         import threading
-        thread = threading.Thread(target=auto_kick_service._check_and_kick)
+        thread = threading.Thread(
+            target=auto_kick_service._check_and_kick,
+            daemon=True
+        )
         thread.start()
-        return jsonify({"success": True, "message": "检测任务已启动"})
+        
+        return jsonify({
+            "success": True,
+            "message": "检测任务已启动"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/auto-kick/status', methods=['GET'])
+@admin_required
+def get_kick_status():
+    """获取检测任务状态"""
+    try:
+        status = auto_kick_service.get_status()
+        return jsonify({"success": True, "status": status})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

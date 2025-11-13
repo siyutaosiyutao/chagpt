@@ -4,6 +4,7 @@
 import time
 import random
 import threading
+import concurrent.futures
 from datetime import datetime
 from curl_cffi import requests as cf_requests
 from database import Team, Invitation, AutoKickConfig, KickLog
@@ -14,6 +15,9 @@ class AutoKickService:
     def __init__(self):
         self.running = False
         self.thread = None
+        self.check_lock = threading.Lock()  # 防止并发检测
+        self.last_check_time = None  # 上次检测完成时间
+        self.check_start_time = None  # 当前检测开始时间
     
     def start(self):
         """启动自动检测服务"""
@@ -89,26 +93,73 @@ class AutoKickService:
             return True  # 出错时默认允许运行
     
     def _check_and_kick(self):
-        """检查并踢出非法成员和过期临时成员"""
-        print(f"\n{'='*60}")
-        print(f"🔍 开始检测非法成员 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"{'='*60}")
-
-        # 1. 检查过期的临时邀请
-        self._check_temp_invitations()
-
-        # 2. 检查所有 Team 的非法成员
-        teams = Team.get_all()
-
-        for team in teams:
-            try:
-                self._check_team(team)
-            except Exception as e:
-                print(f"❌ 检测 Team {team['name']} 时出错: {str(e)}")
-
-        print(f"{'='*60}")
-        print(f"✅ 检测完成")
-        print(f"{'='*60}\n")
+        """检查并踢出非法成员和过期临时成员（并发版本）"""
+        # 1. 尝试获取锁，防止并发执行
+        if not self.check_lock.acquire(blocking=False):
+            print("⚠️  检测任务已在运行中，跳过本次检测")
+            return
+        
+        try:
+            self.check_start_time = datetime.now()
+            print(f"\n{'='*60}")
+            print(f"🔍 开始并发检测 - {self.check_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"{'='*60}")
+            
+            # 2. 检查过期的临时邀请（串行）
+            self._check_temp_invitations()
+            
+            # 3. 并发检测所有 Team
+            teams = Team.get_all()
+            stats = {
+                'total': len(teams),
+                'success': 0,
+                'failed': 0,
+                'skipped': 0
+            }
+            
+            print(f"\n📊 开始并发检测 {stats['total']} 个 Team（使用 3 个线程）...")
+            
+            # 4. 使用线程池并发执行
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = []
+                
+                for team in teams:
+                    # 提交任务前添加随机延迟，避免触发限流
+                    time.sleep(random.uniform(0.3, 0.5))
+                    future = executor.submit(self._check_team_safe, team, stats)
+                    futures.append(future)
+                
+                # 等待所有任务完成
+                concurrent.futures.wait(futures)
+            
+            # 5. 输出统计信息
+            self.last_check_time = datetime.now()
+            duration = (self.last_check_time - self.check_start_time).total_seconds()
+            
+            print(f"\n{'='*60}")
+            print(f"✅ 检测完成")
+            print(f"📊 统计: 总数={stats['total']}, 成功={stats['success']}, "
+                  f"失败={stats['failed']}, 跳过={stats['skipped']}")
+            print(f"⏱️  耗时: {duration:.2f} 秒")
+            print(f"{'='*60}\n")
+            
+        finally:
+            self.check_lock.release()
+            self.check_start_time = None
+    
+    def _check_team_safe(self, team, stats):
+        """线程安全的 Team 检测包装器"""
+        try:
+            result = self._check_team(team)
+            if result == 'success':
+                stats['success'] += 1
+            elif result == 'skipped':
+                stats['skipped'] += 1
+            else:
+                stats['failed'] += 1
+        except Exception as e:
+            print(f"❌ 检测 Team {team['name']} 时出错: {str(e)}")
+            stats['failed'] += 1
     
     def _check_temp_invitations(self):
         """检查并踢出过期的临时邀请成员"""
@@ -163,11 +214,12 @@ class AutoKickService:
 
         if not members:
             print(f"   ⚠️  无法获取成员列表")
-            return
+            return 'skipped'
 
         print(f"   当前成员数: {len(members)}")
 
         # 3. 检查每个成员
+        kicked_count = 0
         for member in members:
             member_email = member.get('email', '').lower()
             member_role = member.get('role', '')
@@ -185,6 +237,9 @@ class AutoKickService:
                 # 非法成员,踢出
                 print(f"   ⚠️  {member_email} (非法成员,准备踢出)")
                 self._kick_member(team, member_user_id, member_email, "未经邀请的成员")
+                kicked_count += 1
+        
+        return 'success'
     
     def _get_team_members(self, access_token, account_id):
         """获取 Team 成员列表"""
@@ -204,15 +259,19 @@ class AutoKickService:
         }
         
         try:
-            response = cf_requests.get(url, headers=headers, impersonate="chrome110", timeout=10)
+            # 降低超时时间从 10 秒到 5 秒
+            response = cf_requests.get(url, headers=headers, impersonate="chrome110", timeout=5)
 
             if response.status_code == 200:
                 data = response.json()
-                # 统一使用account_users字段，与app_new.py保持一致
-                return data.get('account_users', [])
+                # 使用 items 字段（API 实际返回的字段名）
+                return data.get('items', [])
             elif response.status_code == 429:
-                print(f"   ⚠️  请求过于频繁,等待 5 分钟")
-                time.sleep(300)
+                # 不再阻塞，直接跳过该 Team
+                print(f"   ⚠️  请求过于频繁 (429)，跳过该 Team")
+                return None
+            elif response.status_code == 401:
+                print(f"   ❌ Token 已过期 (401)")
                 return None
             else:
                 print(f"   ❌ 获取成员列表失败: {response.status_code}")
@@ -259,6 +318,23 @@ class AutoKickService:
             error_msg = str(e)
             print(f"   ❌ 踢出出错: {email} - {error_msg}")
             KickLog.create(team_id, user_id, email, reason, success=False, error_message=error_msg)
+    
+    def is_checking(self):
+        """检查是否有检测任务正在运行"""
+        return self.check_lock.locked()
+    
+    def get_status(self):
+        """获取检测状态信息"""
+        if self.is_checking():
+            return {
+                'status': 'running',
+                'start_time': self.check_start_time.isoformat() if self.check_start_time else None
+            }
+        else:
+            return {
+                'status': 'idle',
+                'last_check_time': self.last_check_time.isoformat() if self.last_check_time else None
+            }
 
 
 # 全局服务实例

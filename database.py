@@ -3,9 +3,24 @@
 """
 import sqlite3
 import secrets
+import time
 from datetime import datetime
 from contextlib import contextmanager
 from config import DATABASE_PATH, MAX_KEYS_PER_TEAM, KEY_LENGTH
+
+
+def execute_with_retry(func, max_retries=3):
+    """数据库操作重试装饰器，处理数据库锁定错误"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except sqlite3.OperationalError as e:
+            if 'locked' in str(e).lower() and attempt < max_retries - 1:
+                # 指数退避: 0.1s, 0.2s, 0.3s
+                time.sleep(0.1 * (attempt + 1))
+            else:
+                raise
+    return None
 
 
 @contextmanager
@@ -375,12 +390,12 @@ class Invitation:
 
     @staticmethod
     def get_all_emails_by_team(team_id):
-        """获取 Team 的所有已邀请邮箱列表"""
+        """获取 Team 的所有已邀请邮箱列表（包括所有状态，避免误踢pending成员）"""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT DISTINCT email FROM invitations
-                WHERE team_id = ? AND status = 'success'
+                WHERE team_id = ?
             ''', (team_id,))
             return [row[0] for row in cursor.fetchall()]
 
@@ -422,14 +437,17 @@ class Invitation:
 
     @staticmethod
     def delete_by_email(team_id, email):
-        """删除指定team中指定email的邀请记录（用于踢人后释放位置）"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                DELETE FROM invitations
-                WHERE team_id = ? AND LOWER(email) = LOWER(?)
-            ''', (team_id, email))
-            return cursor.rowcount > 0
+        """删除指定team中指定email的邀请记录（线程安全版本，带重试机制）"""
+        def _delete():
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    DELETE FROM invitations
+                    WHERE team_id = ? AND LOWER(email) = LOWER(?)
+                ''', (team_id, email))
+                return cursor.rowcount > 0
+        
+        return execute_with_retry(_delete)
 
     @staticmethod
     def get_by_user_id(team_id, user_id):
@@ -490,14 +508,17 @@ class AutoKickConfig:
 class KickLog:
     @staticmethod
     def create(team_id, user_id, email, reason, success=True, error_message=None):
-        """创建踢人日志"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO kick_logs (team_id, user_id, email, reason, success, error_message)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (team_id, user_id, email, reason, success, error_message))
-            return cursor.lastrowid
+        """创建踢人日志（线程安全版本，带重试机制）"""
+        def _create():
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO kick_logs (team_id, user_id, email, reason, success, error_message)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (team_id, user_id, email, reason, success, error_message))
+                return cursor.lastrowid
+        
+        return execute_with_retry(_create)
 
     @staticmethod
     def get_all(limit=100):
