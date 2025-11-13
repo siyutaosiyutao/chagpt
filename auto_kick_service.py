@@ -220,6 +220,9 @@ class AutoKickService:
 
         # 3. 检查每个成员
         kicked_count = 0
+        legal_count = 0
+        owner_count = 0
+        
         for member in members:
             member_email = member.get('email', '').lower()
             member_role = member.get('role', '')
@@ -228,17 +231,20 @@ class AutoKickService:
             # 跳过所有者
             if member_role == 'account-owner':
                 print(f"   ✅ {member_email} (所有者,跳过)")
+                owner_count += 1
                 continue
 
             # 检查是否在邀请列表中
             if member_email in invited_emails:
                 print(f"   ✅ {member_email} (合法成员)")
+                legal_count += 1
             else:
                 # 非法成员,踢出
                 print(f"   ⚠️  {member_email} (非法成员,准备踢出)")
                 self._kick_member(team, member_user_id, member_email, "未经邀请的成员")
                 kicked_count += 1
         
+        print(f"   📊 统计: 所有者={owner_count}, 合法成员={legal_count}, 踢出={kicked_count}")
         return 'success'
     
     def _get_team_members(self, access_token, account_id):
