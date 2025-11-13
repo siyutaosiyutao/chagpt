@@ -163,11 +163,10 @@ def join_team():
     )
 
     if result['success']:
-        # 计算过期时间 (如果是临时邀请码)
+        # 计算过期时间 (如果是临时邀请码) - 使用UTC时间
         temp_expire_at = None
         if key_info['is_temp'] and key_info['temp_hours'] > 0:
-            beijing_tz = pytz.timezone('Asia/Shanghai')
-            now = datetime.now(beijing_tz)
+            now = datetime.utcnow()
             temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
 
         # 记录邀请
@@ -208,8 +207,7 @@ def join_team():
                 # 实际已成功（在 pending 列表中）
                 temp_expire_at = None
                 if key_info['is_temp'] and key_info['temp_hours'] > 0:
-                    beijing_tz = pytz.timezone('Asia/Shanghai')
-                    now = datetime.now(beijing_tz)
+                    now = datetime.utcnow()
                     temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
                 
                 # 先删除可能存在的failed记录
@@ -707,11 +705,10 @@ def admin_invite_member(team_id):
     result = invite_to_team(team['access_token'], team['account_id'], email, team_id)
 
     if result['success']:
-        # 计算过期时间
+        # 计算过期时间 - 使用UTC时间
         temp_expire_at = None
         if is_temp and temp_hours > 0:
-            beijing_tz = pytz.timezone('Asia/Shanghai')
-            now = datetime.now(beijing_tz)
+            now = datetime.utcnow()
             temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
 
         # 记录邀请
@@ -747,8 +744,7 @@ def admin_invite_member(team_id):
                 
                 temp_expire_at = None
                 if is_temp and temp_hours > 0:
-                    beijing_tz = pytz.timezone('Asia/Shanghai')
-                    now = datetime.now(beijing_tz)
+                    now = datetime.utcnow()
                     temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
                 
                 Invitation.create(
@@ -897,11 +893,10 @@ def admin_invite_auto():
     result = invite_to_team(team['access_token'], team['account_id'], email, team['id'])
 
     if result['success']:
-        # 计算过期时间
+        # 计算过期时间 - 使用UTC时间
         temp_expire_at = None
         if is_temp and temp_hours > 0:
-            beijing_tz = pytz.timezone('Asia/Shanghai')
-            now = datetime.now(beijing_tz)
+            now = datetime.utcnow()
             temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
 
         # 记录邀请

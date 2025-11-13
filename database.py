@@ -460,14 +460,15 @@ class Invitation:
 
     @staticmethod
     def get_temp_expired():
-        """获取所有已过期的临时邀请"""
+        """获取所有已过期的临时邀请（使用UTC时间比较）"""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT * FROM invitations
                 WHERE is_temp = 1
                   AND is_confirmed = 0
-                  AND temp_expire_at < datetime('now')
+                  AND temp_expire_at IS NOT NULL
+                  AND datetime(temp_expire_at) < datetime('now')
                 ORDER BY temp_expire_at
             ''')
             return [dict(row) for row in cursor.fetchall()]
