@@ -212,6 +212,9 @@ def join_team():
                     now = datetime.now(beijing_tz)
                     temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
                 
+                # 先删除可能存在的failed记录
+                Invitation.delete_by_email(team['id'], email)
+                
                 Invitation.create(
                     team_id=team['id'],
                     email=email,
@@ -240,7 +243,9 @@ def join_team():
         if members_result['success']:
             member_emails = [m.get('email', '').lower() for m in members_result.get('members', [])]
             if email.lower() in member_emails:
-                # 已经是成员了
+                # 已经是成员了，先删除可能存在的failed记录
+                Invitation.delete_by_email(team['id'], email)
+                
                 Invitation.create(
                     team_id=team['id'],
                     email=email,
@@ -737,7 +742,9 @@ def admin_invite_member(team_id):
         if pending_result['success']:
             pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
             if email.lower() in pending_emails:
-                # 实际已成功（在 pending 列表中）
+                # 实际已成功（在 pending 列表中），先删除可能存在的failed记录
+                Invitation.delete_by_email(team_id, email)
+                
                 temp_expire_at = None
                 if is_temp and temp_hours > 0:
                     beijing_tz = pytz.timezone('Asia/Shanghai')
@@ -764,7 +771,9 @@ def admin_invite_member(team_id):
         if members_result['success']:
             member_emails = [m.get('email', '').lower() for m in members_result.get('members', [])]
             if email.lower() in member_emails:
-                # 已经是成员了
+                # 已经是成员了，先删除可能存在的failed记录
+                Invitation.delete_by_email(team_id, email)
+                
                 Invitation.create(
                     team_id=team_id,
                     email=email,
