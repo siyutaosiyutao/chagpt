@@ -754,8 +754,14 @@
         }
 
         // 管理员自动邀请成员
+        let isAdminInviting = false;
         async function adminInviteAuto(e) {
             e.preventDefault();
+
+            if (isAdminInviting) {
+                alert('正在邀请中，请稍候...');
+                return;
+            }
 
             const email = document.getElementById('admin_invite_email').value.trim();
             const isTemp = document.getElementById('admin_invite_is_temp').checked;
@@ -765,6 +771,12 @@
                 alert('请输入邮箱');
                 return;
             }
+
+            isAdminInviting = true;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '邀请中...';
 
             try {
                 const response = await fetch('/api/admin/invite-auto', {
@@ -783,17 +795,33 @@
                     alert(data.message);
                     document.getElementById('adminInviteForm').reset();
                     loadInvitations();
+                    loadTeams(); // 刷新team列表以更新token状态
                 } else {
-                    alert('错误: ' + data.error);
+                    // 检查是否是token过期错误
+                    if (data.error && data.error.includes('Token已过期')) {
+                        alert('⚠️ Token已过期\n\n' + data.error + '\n\n请在Teams列表中找到对应的Team，点击"🔄 更新Token"按钮更新Token后重试');
+                    } else {
+                        alert('错误: ' + data.error);
+                    }
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);
+            } finally {
+                isAdminInviting = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
         }
 
         // 手动踢人
+        let isKicking = false;
         async function manualKickMember(e) {
             e.preventDefault();
+
+            if (isKicking) {
+                alert('正在踢人中，请稍候...');
+                return;
+            }
 
             const email = document.getElementById('kick_email').value.trim();
 
@@ -803,6 +831,12 @@
             }
 
             if (!confirm(`确定要踢出 ${email} 吗？`)) return;
+
+            isKicking = true;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '踢出中...';
 
             try {
                 const response = await fetch('/api/admin/kick-by-email-auto', {
@@ -817,11 +851,16 @@
                     alert(data.message);
                     document.getElementById('manualKickForm').reset();
                     loadKickLogs();
+                    loadTeams(); // 刷新team列表
                 } else {
                     alert('错误: ' + data.error);
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);
+            } finally {
+                isKicking = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
         }
 
@@ -837,10 +876,18 @@
             let html = '<div class="teams-grid">';
 
             teams.forEach(team => {
+                // Token状态显示
+                let tokenStatusBadge = '';
+                if (team.token_status === 'expired') {
+                    tokenStatusBadge = '<span class="badge badge-error" style="margin-left: 8px;">⚠️ Token已过期</span>';
+                } else if (team.token_error_count > 0) {
+                    tokenStatusBadge = `<span class="badge" style="margin-left: 8px; background: #ff9800;">⚠️ 错误${team.token_error_count}/5</span>`;
+                }
+                
                 html += `
                     <div class="team-card">
                         <div class="team-header">
-                            <h3>${team.name}</h3>
+                            <h3>${team.name}${tokenStatusBadge}</h3>
                             <span class="badge">${team.member_count}/4 人</span>
                         </div>
                         <div class="team-info">
@@ -961,8 +1008,14 @@
                     alert(data.message);
                     document.getElementById('inviteMemberForm').reset();
                     showMembers(teamId, document.getElementById('membersModalTitle').textContent.split(' - ')[0].substring(2));
+                    loadTeams(); // 刷新team列表以更新token状态
                 } else {
-                    alert('错误: ' + data.error);
+                    // 检查是否是token过期错误
+                    if (data.error && data.error.includes('Token已过期')) {
+                        alert('⚠️ Token已过期\n\n' + data.error + '\n\n请关闭此窗口，在Teams列表中点击"🔄 更新Token"按钮更新Token后重试');
+                    } else {
+                        alert('错误: ' + data.error);
+                    }
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);

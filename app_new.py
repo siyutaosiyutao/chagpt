@@ -28,7 +28,7 @@ def admin_required(f):
     return decorated_function
 
 
-def invite_to_team(access_token, account_id, email):
+def invite_to_team(access_token, account_id, email, team_id=None):
     """调用 ChatGPT API 邀请成员"""
     url = f"https://chatgpt.com/backend-api/accounts/{account_id}/invites"
     
@@ -57,9 +57,24 @@ def invite_to_team(access_token, account_id, email):
         if response.status_code in [200, 201]:
             data = response.json()
             invites = data.get('account_invites', [])
+            # 成功时重置错误计数
+            if team_id:
+                Team.reset_token_error(team_id)
             if invites:
                 return {"success": True, "invite_id": invites[0].get('id')}
             return {"success": True}
+        elif response.status_code == 401:
+            # 检测到401，增加错误计数
+            if team_id:
+                status = Team.increment_token_error(team_id)
+                if status and status['token_status'] == 'expired':
+                    return {
+                        "success": False, 
+                        "error": "Token已过期，请更新该Team的Token",
+                        "error_code": "TOKEN_EXPIRED",
+                        "status_code": 401
+                    }
+            return {"success": False, "error": response.text, "status_code": response.status_code}
         else:
             return {"success": False, "error": response.text, "status_code": response.status_code}
     except Exception as e:
@@ -143,7 +158,8 @@ def join_team():
     result = invite_to_team(
         team['access_token'],
         team['account_id'],
-        email
+        email,
+        team['id']
     )
 
     if result['success']:
@@ -683,7 +699,7 @@ def admin_invite_member(team_id):
         return jsonify({"success": False, "error": "该邮箱已被邀请过"}), 400
 
     # 执行邀请
-    result = invite_to_team(team['access_token'], team['account_id'], email)
+    result = invite_to_team(team['access_token'], team['account_id'], email, team_id)
 
     if result['success']:
         # 计算过期时间
@@ -861,7 +877,7 @@ def admin_invite_auto():
         return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
 
     # 执行邀请
-    result = invite_to_team(team['access_token'], team['account_id'], email)
+    result = invite_to_team(team['access_token'], team['account_id'], email, team['id'])
 
     if result['success']:
         # 计算过期时间

@@ -53,10 +53,23 @@ def init_db():
                 organization_id TEXT,
                 email TEXT,
                 last_invite_at TIMESTAMP,
+                token_error_count INTEGER DEFAULT 0,
+                token_status TEXT DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # 为已存在的表添加新字段（如果不存在）
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN token_error_count INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+        
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN token_status TEXT DEFAULT "active"')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
         
         # Access Keys 表 (重构: 每个邀请码对应一个 Team)
         cursor.execute('''
@@ -191,12 +204,15 @@ class Team:
 
     @staticmethod
     def update_token(team_id, access_token):
-        """更新 Team 的 access_token"""
+        """更新 Team 的 access_token，并重置错误计数"""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE teams
-                SET access_token = ?, updated_at = CURRENT_TIMESTAMP
+                SET access_token = ?, 
+                    token_error_count = 0,
+                    token_status = 'active',
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (access_token, team_id))
 
@@ -269,6 +285,49 @@ class Team:
                 SET last_invite_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (team_id,))
+    
+    @staticmethod
+    def increment_token_error(team_id):
+        """增加token错误计数，如果达到5次则标记为expired"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE teams
+                SET token_error_count = token_error_count + 1,
+                    token_status = CASE 
+                        WHEN token_error_count + 1 >= 5 THEN 'expired'
+                        ELSE token_status
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (team_id,))
+            
+            # 返回更新后的错误计数
+            cursor.execute('SELECT token_error_count, token_status FROM teams WHERE id = ?', (team_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    @staticmethod
+    def reset_token_error(team_id):
+        """重置token错误计数（当token更新或请求成功时）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE teams
+                SET token_error_count = 0,
+                    token_status = 'active',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (team_id,))
+    
+    @staticmethod
+    def get_token_status(team_id):
+        """获取token状态"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT token_error_count, token_status FROM teams WHERE id = ?', (team_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
 
 class AccessKey:
