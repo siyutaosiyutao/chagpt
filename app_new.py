@@ -816,7 +816,15 @@ def kick_member_by_email(team_id):
                    if m.get('email', '').lower() == email), None)
 
     if not member:
-        return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员"}), 404
+        # 未找到成员，可能已经离开或拒绝邀请，删除invitations记录释放位置
+        deleted = Invitation.delete_by_email(team_id, email)
+        if deleted:
+            return jsonify({
+                "success": True, 
+                "message": f"未找到 {email}，但已从邀请记录中删除，释放位置"
+            })
+        else:
+            return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员或邀请记录"}), 404
 
     # 检查是否为所有者
     if member.get('role') == 'account-owner':
@@ -953,7 +961,20 @@ def kick_member_by_email_auto():
             break
 
     if not found_team or not found_member:
-        return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员"}), 404
+        # 未找到成员，可能已经离开或拒绝邀请，删除invitations记录释放位置
+        deleted_count = 0
+        for team in teams:
+            deleted = Invitation.delete_by_email(team['id'], email)
+            if deleted:
+                deleted_count += 1
+        
+        if deleted_count > 0:
+            return jsonify({
+                "success": True, 
+                "message": f"未找到 {email}，但已从 {deleted_count} 个Team的邀请记录中删除，释放位置"
+            })
+        else:
+            return jsonify({"success": False, "error": f"未找到邮箱为 {email} 的成员或邀请记录"}), 404
 
     # 检查是否为所有者
     if found_member.get('role') == 'account-owner':
