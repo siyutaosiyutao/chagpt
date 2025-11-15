@@ -936,48 +936,79 @@ def admin_invite_auto():
 @app.route('/api/admin/kick-by-email-auto', methods=['POST'])
 @admin_required
 def kick_member_by_email_auto():
-    """通过邮箱踢出成员(自动查找所有Team)"""
+    """通过邮箱踢出成员(自动查找所有Team) - 优化版：优先从数据库查询"""
     data = request.json
     email = data.get('email', '').strip().lower()
 
     if not email:
         return jsonify({"success": False, "error": "请输入邮箱"}), 400
 
-    # 获取所有Team
-    teams = Team.get_all()
-    if not teams:
-        return jsonify({"success": False, "error": "当前没有 Team"}), 404
+    # 性能优化：先从邀请记录中查找该邮箱可能所在的Team
+    candidate_team_ids = Invitation.get_teams_by_email(email)
 
-    # 遍历所有Team查找该成员
     found_team = None
     found_member = None
 
-    for team in teams:
-        # 获取成员列表
-        members_result = get_team_members(team['access_token'], team['account_id'])
-        if not members_result['success']:
-            continue
+    # 优先检查候选Team（有邀请记录的Team）
+    if candidate_team_ids:
+        for team_id in candidate_team_ids:
+            team = Team.get_by_id(team_id)
+            if not team:
+                continue
 
-        # 查找匹配的成员
-        member = next((m for m in members_result['members']
-                       if m.get('email', '').lower() == email), None)
+            # 获取成员列表
+            members_result = get_team_members(team['access_token'], team['account_id'])
+            if not members_result['success']:
+                continue
 
-        if member:
-            found_team = team
-            found_member = member
-            break
+            # 查找匹配的成员
+            member = next((m for m in members_result['members']
+                           if m.get('email', '').lower() == email), None)
+
+            if member:
+                found_team = team
+                found_member = member
+                break
+
+    # 如果候选Team中没找到，再遍历所有Team（兜底逻辑，处理手动添加的成员）
+    if not found_team or not found_member:
+        teams = Team.get_all()
+        if not teams:
+            return jsonify({"success": False, "error": "当前没有 Team"}), 404
+
+        # 排除已检查过的Team
+        checked_team_ids = set(candidate_team_ids)
+
+        for team in teams:
+            if team['id'] in checked_team_ids:
+                continue
+
+            # 获取成员列表
+            members_result = get_team_members(team['access_token'], team['account_id'])
+            if not members_result['success']:
+                continue
+
+            # 查找匹配的成员
+            member = next((m for m in members_result['members']
+                           if m.get('email', '').lower() == email), None)
+
+            if member:
+                found_team = team
+                found_member = member
+                break
 
     if not found_team or not found_member:
         # 未找到成员，可能已经离开或拒绝邀请，删除invitations记录释放位置
         deleted_count = 0
+        teams = Team.get_all()
         for team in teams:
             deleted = Invitation.delete_by_email(team['id'], email)
             if deleted:
                 deleted_count += 1
-        
+
         if deleted_count > 0:
             return jsonify({
-                "success": True, 
+                "success": True,
                 "message": f"未找到 {email}，但已从 {deleted_count} 个Team的邀请记录中删除，释放位置"
             })
         else:
