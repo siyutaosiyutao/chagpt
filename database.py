@@ -496,6 +496,20 @@ class Invitation:
             ''', (user_id, invitation_id,))
 
     @staticmethod
+    def get_teams_by_email(email):
+        """通过邮箱查找该成员可能所在的所有Team ID列表"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT DISTINCT team_id
+                FROM invitations
+                WHERE LOWER(email) = LOWER(?)
+                  AND status = 'success'
+                ORDER BY created_at DESC
+            ''', (email,))
+            return [row[0] for row in cursor.fetchall()]
+
+    @staticmethod
     def delete_by_email(team_id, email):
         """删除指定team中指定email的邀请记录（线程安全版本，带重试机制）"""
         def _delete():
@@ -506,7 +520,7 @@ class Invitation:
                     WHERE team_id = ? AND LOWER(email) = LOWER(?)
                 ''', (team_id, email))
                 return cursor.rowcount > 0
-        
+
         return execute_with_retry(_delete)
 
     @staticmethod
