@@ -180,6 +180,9 @@ def join_team():
             temp_expire_at=temp_expire_at
         )
 
+        # 邀请码使用一次后立即取消，防止重复使用
+        AccessKey.cancel(key_info['id'])
+
         # 更新team的最后邀请时间（实现轮询）
         Team.update_last_invite(team['id'])
 
