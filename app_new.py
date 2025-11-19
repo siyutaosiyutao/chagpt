@@ -423,6 +423,33 @@ def delete_team(team_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/admin/teams/delete-expired', methods=['POST'])
+@admin_required
+def delete_expired_teams():
+    """批量删除所有token已过期的teams"""
+    try:
+        result = Team.delete_expired_teams()
+        deleted_count = result['deleted_count']
+        deleted_teams = result['deleted_teams']
+
+        if deleted_count > 0:
+            team_names = [team['name'] for team in deleted_teams]
+            return jsonify({
+                "success": True,
+                "message": f"成功删除 {deleted_count} 个Token已过期的Team",
+                "deleted_count": deleted_count,
+                "deleted_teams": team_names
+            })
+        else:
+            return jsonify({
+                "success": True,
+                "message": "没有Token已过期的Team需要删除",
+                "deleted_count": 0
+            })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/admin/teams/<int:team_id>/token', methods=['PUT'])
 @admin_required
 def update_team_token(team_id):

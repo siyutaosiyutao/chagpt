@@ -329,6 +329,41 @@ class Team:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    @staticmethod
+    def get_expired_teams():
+        """获取所有token已过期的teams"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, name, token_error_count, token_status, created_at
+                FROM teams
+                WHERE token_status = 'expired'
+                ORDER BY updated_at DESC
+            ''')
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def delete_expired_teams():
+        """批量删除所有token已过期的teams，返回删除的数量和详情"""
+        expired_teams = Team.get_expired_teams()
+        deleted_count = 0
+        deleted_teams = []
+
+        with get_db() as conn:
+            cursor = conn.cursor()
+            for team in expired_teams:
+                try:
+                    cursor.execute('DELETE FROM teams WHERE id = ?', (team['id'],))
+                    deleted_count += 1
+                    deleted_teams.append(team)
+                except Exception as e:
+                    print(f"删除Team {team['id']} 失败: {e}")
+
+        return {
+            'deleted_count': deleted_count,
+            'deleted_teams': deleted_teams
+        }
+
 
 class AccessKey:
     @staticmethod

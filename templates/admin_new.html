@@ -426,6 +426,9 @@
         <!-- Teams 列表 -->
         <div class="section">
             <h2>📋 Teams 列表</h2>
+            <div style="margin-bottom: 15px;">
+                <button onclick="deleteExpiredTeams()" class="btn btn-danger">🗑️ 一键删除所有Token已过期的Team</button>
+            </div>
             <div id="teamsList">加载中...</div>
         </div>
 
@@ -1093,6 +1096,33 @@
 
                 if (data.success) {
                     alert('Team 删除成功！');
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 一键删除所有Token已过期的Team
+        async function deleteExpiredTeams() {
+            if (!confirm('⚠️ 确定要删除所有Token已过期的Team吗？\n\n此操作不可恢复！')) return;
+
+            try {
+                const response = await fetch('/api/admin/teams/delete-expired', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.deleted_count > 0) {
+                        const teamList = data.deleted_teams.join('\n- ');
+                        alert(`✅ ${data.message}\n\n已删除的Team：\n- ${teamList}`);
+                    } else {
+                        alert('✅ ' + data.message);
+                    }
                     loadTeams();
                 } else {
                     alert('错误: ' + data.error);
