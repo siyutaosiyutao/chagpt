@@ -322,13 +322,57 @@ class Team:
         """重置token错误计数（当token更新或请求成功时）"""
         with get_db() as conn:
             cursor = conn.cursor()
+
+            # 获取检查成员的错误状态，判断是否应该保持expired
             cursor.execute('''
-                UPDATE teams
-                SET token_error_count = 0,
-                    token_status = 'active',
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                SELECT member_check_error_count, member_check_first_error_at
+                FROM teams WHERE id = ?
             ''', (team_id,))
+            row = cursor.fetchone()
+
+            if row:
+                member_check_count = row[0] or 0
+                first_error_at = row[1]
+
+                # 判断检查成员那边是否过期（10分钟内>3次）
+                member_check_expired = False
+                if first_error_at and member_check_count > 3:
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc)
+                    first_error_dt = datetime.fromisoformat(first_error_at.replace('Z', '+00:00'))
+                    if first_error_dt.tzinfo is None:
+                        first_error_dt = first_error_dt.replace(tzinfo=timezone.utc)
+                    time_diff = (now - first_error_dt).total_seconds()
+                    # 10分钟内才算过期
+                    if time_diff <= 600:
+                        member_check_expired = True
+
+                # 只有当检查成员那边也没过期时，才设置为active
+                if not member_check_expired:
+                    cursor.execute('''
+                        UPDATE teams
+                        SET token_error_count = 0,
+                            token_status = 'active',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (team_id,))
+                else:
+                    # 检查成员那边已经标记为expired，保持expired状态
+                    cursor.execute('''
+                        UPDATE teams
+                        SET token_error_count = 0,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (team_id,))
+            else:
+                # 没有记录，直接重置
+                cursor.execute('''
+                    UPDATE teams
+                    SET token_error_count = 0,
+                        token_status = 'active',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (team_id,))
 
     @staticmethod
     def increment_member_check_error(team_id):
@@ -354,7 +398,7 @@ class Team:
 
             # 如果是第一次错误，或者距离第一次错误超过10分钟，重新开始计数
             if not first_error_at:
-                # 第一次错误
+                # 第一次错误，不修改token_status
                 cursor.execute('''
                     UPDATE teams
                     SET member_check_error_count = 1,
@@ -362,7 +406,12 @@ class Team:
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ''', (now.isoformat(), team_id))
-                return {'member_check_error_count': 1, 'token_status': 'active'}
+
+                # 获取当前token_status（可能被邀请那边设置为expired）
+                cursor.execute('SELECT token_status FROM teams WHERE id = ?', (team_id,))
+                row = cursor.fetchone()
+                current_status = row[0] if row else 'active'
+                return {'member_check_error_count': 1, 'token_status': current_status}
 
             # 解析第一次错误时间
             first_error_dt = datetime.fromisoformat(first_error_at.replace('Z', '+00:00'))
@@ -380,35 +429,73 @@ class Team:
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ''', (now.isoformat(), team_id))
-                return {'member_check_error_count': 1, 'token_status': 'active'}
+
+                # 获取当前token_status（可能被邀请那边设置为expired）
+                cursor.execute('SELECT token_status FROM teams WHERE id = ?', (team_id,))
+                row = cursor.fetchone()
+                current_status = row[0] if row else 'active'
+                return {'member_check_error_count': 1, 'token_status': current_status}
 
             # 10分钟内，增加计数
             new_count = current_count + 1
-            new_status = 'expired' if new_count >= 3 else 'active'
 
-            cursor.execute('''
-                UPDATE teams
-                SET member_check_error_count = ?,
-                    token_status = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (new_count, new_status, team_id))
+            # 只有超过3次（即第4次）才标记为过期
+            if new_count > 3:
+                cursor.execute('''
+                    UPDATE teams
+                    SET member_check_error_count = ?,
+                        token_status = 'expired',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (new_count, team_id))
+                return {'member_check_error_count': new_count, 'token_status': 'expired'}
+            else:
+                # 未达到阈值，只更新计数，不修改token_status
+                cursor.execute('''
+                    UPDATE teams
+                    SET member_check_error_count = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (new_count, team_id))
 
-            return {'member_check_error_count': new_count, 'token_status': new_status}
+                # 获取当前token_status
+                cursor.execute('SELECT token_status FROM teams WHERE id = ?', (team_id,))
+                row = cursor.fetchone()
+                current_status = row[0] if row else 'active'
+                return {'member_check_error_count': new_count, 'token_status': current_status}
 
     @staticmethod
     def reset_member_check_error(team_id):
         """重置检查成员的错误计数（当请求成功时）"""
         with get_db() as conn:
             cursor = conn.cursor()
+
+            # 获取邀请成员的错误计数，判断是否应该保持expired状态
             cursor.execute('''
-                UPDATE teams
-                SET member_check_error_count = 0,
-                    member_check_first_error_at = NULL,
-                    token_status = 'active',
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                SELECT token_error_count FROM teams WHERE id = ?
             ''', (team_id,))
+            row = cursor.fetchone()
+            invite_error_count = row[0] if row else 0
+
+            # 只有当邀请成员错误计数也小于5时，才设置为active
+            if invite_error_count < 5:
+                cursor.execute('''
+                    UPDATE teams
+                    SET member_check_error_count = 0,
+                        member_check_first_error_at = NULL,
+                        token_status = 'active',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (team_id,))
+            else:
+                # 邀请成员那边已经标记为expired，保持expired状态
+                cursor.execute('''
+                    UPDATE teams
+                    SET member_check_error_count = 0,
+                        member_check_first_error_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (team_id,))
 
     @staticmethod
     def get_token_status(team_id):
