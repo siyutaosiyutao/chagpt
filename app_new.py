@@ -147,7 +147,7 @@ def join_team():
         tried_teams.append(team['name'])
 
         # 检查实际成员数（API获取）
-        members_result = get_team_members(team['access_token'], team['account_id'])
+        members_result = get_team_members(team['access_token'], team['account_id'], team['id'])
         if not members_result['success']:
             last_error = f"无法获取{team['name']}成员列表"
             continue
@@ -573,7 +573,7 @@ def confirm_invitation(invitation_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-def get_team_members(access_token, account_id):
+def get_team_members(access_token, account_id, team_id=None):
     """获取 Team 成员列表"""
     url = f"https://chatgpt.com/backend-api/accounts/{account_id}/users"
 
@@ -591,9 +591,24 @@ def get_team_members(access_token, account_id):
         response = cf_requests.get(url, headers=headers, impersonate="chrome110")
         if response.status_code == 200:
             data = response.json()
+            # 成功时重置错误计数
+            if team_id:
+                Team.reset_token_error(team_id)
             return {"success": True, "members": data.get('items', [])}
+        elif response.status_code == 401:
+            # 检测到401，增加错误计数
+            if team_id:
+                status = Team.increment_token_error(team_id)
+                if status and status['token_status'] == 'expired':
+                    return {
+                        "success": False,
+                        "error": "Token已过期，请更新该Team的Token",
+                        "error_code": "TOKEN_EXPIRED",
+                        "status_code": 401
+                    }
+            return {"success": False, "error": response.text, "status_code": response.status_code}
         else:
-            return {"success": False, "error": response.text}
+            return {"success": False, "error": response.text, "status_code": response.status_code}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -655,7 +670,7 @@ def get_members(team_id):
     if not team:
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
-    result = get_team_members(team['access_token'], team['account_id'])
+    result = get_team_members(team['access_token'], team['account_id'], team_id)
 
     # 为每个成员添加临时邀请信息
     if result['success']:
@@ -684,7 +699,7 @@ def kick_team_member(team_id, user_id):
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
     # 获取成员信息
-    members_result = get_team_members(team['access_token'], team['account_id'])
+    members_result = get_team_members(team['access_token'], team['account_id'], team_id)
     if not members_result['success']:
         return jsonify({"success": False, "error": "无法获取成员列表"}), 500
 
@@ -808,7 +823,7 @@ def admin_invite_member(team_id):
                 })
         
         # 2. 检查是否已在成员列表中
-        members_result = get_team_members(team['access_token'], team['account_id'])
+        members_result = get_team_members(team['access_token'], team['account_id'], team_id)
         if members_result['success']:
             member_emails = [m.get('email', '').lower() for m in members_result.get('members', [])]
             if email.lower() in member_emails:
@@ -857,7 +872,7 @@ def kick_member_by_email(team_id):
         return jsonify({"success": False, "error": "Team 不存在"}), 404
 
     # 获取成员列表
-    members_result = get_team_members(team['access_token'], team['account_id'])
+    members_result = get_team_members(team['access_token'], team['account_id'], team_id)
     if not members_result['success']:
         return jsonify({"success": False, "error": "无法获取成员列表"}), 500
 
@@ -956,7 +971,7 @@ def admin_invite_auto():
         tried_teams.append(team['name'])
 
         # 检查实际成员数
-        members_result = get_team_members(team['access_token'], team['account_id'])
+        members_result = get_team_members(team['access_token'], team['account_id'], team['id'])
         if not members_result['success']:
             last_error = f"无法获取{team['name']}成员列表"
             continue
@@ -1077,7 +1092,7 @@ def kick_member_by_email_auto():
                 continue
 
             # 获取成员列表
-            members_result = get_team_members(team['access_token'], team['account_id'])
+            members_result = get_team_members(team['access_token'], team['account_id'], team_id)
             if not members_result['success']:
                 continue
 
@@ -1104,7 +1119,7 @@ def kick_member_by_email_auto():
                 continue
 
             # 获取成员列表
-            members_result = get_team_members(team['access_token'], team['account_id'])
+            members_result = get_team_members(team['access_token'], team['account_id'], team['id'])
             if not members_result['success']:
                 continue
 
