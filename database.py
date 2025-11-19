@@ -70,7 +70,17 @@ def init_db():
             cursor.execute('ALTER TABLE teams ADD COLUMN token_status TEXT DEFAULT "active"')
         except sqlite3.OperationalError:
             pass  # 字段已存在
-        
+
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN member_check_error_count INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+
+        try:
+            cursor.execute('ALTER TABLE teams ADD COLUMN member_check_first_error_at TIMESTAMP')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+
         # Access Keys 表 (重构: 每个邀请码对应一个 Team)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS access_keys (
@@ -319,7 +329,87 @@ class Team:
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (team_id,))
-    
+
+    @staticmethod
+    def increment_member_check_error(team_id):
+        """增加检查成员时的token错误计数（10分钟内超过3次则标记为expired）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # 获取当前状态
+            cursor.execute('''
+                SELECT member_check_error_count, member_check_first_error_at
+                FROM teams WHERE id = ?
+            ''', (team_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            current_count = row[0] or 0
+            first_error_at = row[1]
+
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+
+            # 如果是第一次错误，或者距离第一次错误超过10分钟，重新开始计数
+            if not first_error_at:
+                # 第一次错误
+                cursor.execute('''
+                    UPDATE teams
+                    SET member_check_error_count = 1,
+                        member_check_first_error_at = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (now.isoformat(), team_id))
+                return {'member_check_error_count': 1, 'token_status': 'active'}
+
+            # 解析第一次错误时间
+            first_error_dt = datetime.fromisoformat(first_error_at.replace('Z', '+00:00'))
+            if first_error_dt.tzinfo is None:
+                first_error_dt = first_error_dt.replace(tzinfo=timezone.utc)
+
+            time_diff = (now - first_error_dt).total_seconds()
+
+            # 如果超过10分钟，重置计数
+            if time_diff > 600:  # 600秒 = 10分钟
+                cursor.execute('''
+                    UPDATE teams
+                    SET member_check_error_count = 1,
+                        member_check_first_error_at = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (now.isoformat(), team_id))
+                return {'member_check_error_count': 1, 'token_status': 'active'}
+
+            # 10分钟内，增加计数
+            new_count = current_count + 1
+            new_status = 'expired' if new_count >= 3 else 'active'
+
+            cursor.execute('''
+                UPDATE teams
+                SET member_check_error_count = ?,
+                    token_status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (new_count, new_status, team_id))
+
+            return {'member_check_error_count': new_count, 'token_status': new_status}
+
+    @staticmethod
+    def reset_member_check_error(team_id):
+        """重置检查成员的错误计数（当请求成功时）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE teams
+                SET member_check_error_count = 0,
+                    member_check_first_error_at = NULL,
+                    token_status = 'active',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (team_id,))
+
     @staticmethod
     def get_token_status(team_id):
         """获取token状态"""

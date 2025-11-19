@@ -591,18 +591,18 @@ def get_team_members(access_token, account_id, team_id=None):
         response = cf_requests.get(url, headers=headers, impersonate="chrome110")
         if response.status_code == 200:
             data = response.json()
-            # 成功时重置错误计数
+            # 成功时重置检查成员的错误计数
             if team_id:
-                Team.reset_token_error(team_id)
+                Team.reset_member_check_error(team_id)
             return {"success": True, "members": data.get('items', [])}
         elif response.status_code == 401:
-            # 检测到401，增加错误计数
+            # 检测到401，增加检查成员的错误计数（10分钟内超过3次才标记为过期）
             if team_id:
-                status = Team.increment_token_error(team_id)
+                status = Team.increment_member_check_error(team_id)
                 if status and status['token_status'] == 'expired':
                     return {
                         "success": False,
-                        "error": "Token已过期，请更新该Team的Token",
+                        "error": "Token已过期（检查成员失败次数过多），请更新该Team的Token",
                         "error_code": "TOKEN_EXPIRED",
                         "status_code": 401
                     }
