@@ -40,15 +40,21 @@
         
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const email = document.getElementById('email').value.trim();
             const key_code = document.getElementById('key_code').value.trim();
-            
+
             if (!email || !key_code) {
                 showMessage('请填写所有字段', 'error');
                 return;
             }
-            
+
+            // 确认邮箱是否正确
+            const confirmMessage = `📧 请确认您的邮箱地址是否正确：\n\n${email}\n\n⚠️ 邀请邮件将发送到此邮箱，请仔细核对！\n如果邮箱错误，请点击"取消"重新输入。`;
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
             // 禁用按钮
             const submitBtn = form.querySelector('button[type="submit"]');
             submitBtn.disabled = true;

@@ -426,7 +426,11 @@
         <!-- Teams 列表 -->
         <div class="section">
             <h2>📋 Teams 列表</h2>
-            <div id="teamsList">加载中...</div>
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                <button onclick="toggleTeamsList()" class="btn btn-primary" id="toggleTeamsBtn">👁️ 查看Teams</button>
+                <button onclick="deleteExpiredTeams()" class="btn btn-danger">🗑️ 一键删除Token过期Team</button>
+            </div>
+            <div id="teamsList" style="display: none;"></div>
         </div>
 
         <!-- 踢人日志 -->
@@ -480,9 +484,11 @@
         let currentTeamId = null;
         let allKeys = []; // 存储所有邀请码
 
+        let teamsLoaded = false; // 标记Teams是否已加载
+
         // 页面加载时初始化
         window.onload = function() {
-            loadTeams();
+            // 不自动加载Teams，等用户点击"查看Teams"按钮
             loadKeys();
             loadAutoKickConfig();
             loadKickLogs();
@@ -498,6 +504,28 @@
                 document.getElementById('admin_temp_hours_group').style.display = this.checked ? 'block' : 'none';
             });
         };
+
+        // 折叠/展开Teams列表
+        function toggleTeamsList() {
+            const teamsList = document.getElementById('teamsList');
+            const toggleBtn = document.getElementById('toggleTeamsBtn');
+
+            if (teamsList.style.display === 'none') {
+                // 展开
+                teamsList.style.display = 'block';
+                toggleBtn.textContent = '👁️‍🗨️ 隐藏Teams';
+
+                // 首次展开时加载数据
+                if (!teamsLoaded) {
+                    loadTeams();
+                    teamsLoaded = true;
+                }
+            } else {
+                // 收起
+                teamsList.style.display = 'none';
+                toggleBtn.textContent = '👁️ 查看Teams';
+            }
+        }
 
         // 添加 Team
         async function addTeam(e) {
@@ -898,6 +926,7 @@
                         </div>
                         <div class="team-actions">
                             <button onclick="showMembers(${team.id}, '${team.name}')" class="btn btn-primary btn-sm">👥 成员管理</button>
+                            <button onclick="exportToken(${team.id}, '${team.name}')" class="btn btn-secondary btn-sm">📤 导出Token</button>
                             <button onclick="updateToken(${team.id})" class="btn btn-secondary btn-sm">🔄 更新Token</button>
                             <button onclick="deleteTeam(${team.id}, '${team.name}')" class="btn btn-danger btn-sm">🗑️ 删除</button>
                         </div>
@@ -1055,6 +1084,30 @@
 
 
 
+        // 导出 Team Token
+        async function exportToken(teamId, teamName) {
+            try {
+                const response = await fetch(`/api/admin/teams/${teamId}/token-export`);
+                const data = await response.json();
+
+                if (data.success) {
+                    const tokenInfo = `Team: ${teamName}\nAccess Token: ${data.access_token}\nAccount ID: ${data.account_id}\nOrganization ID: ${data.organization_id || 'N/A'}`;
+
+                    // 复制到剪贴板
+                    navigator.clipboard.writeText(data.access_token).then(() => {
+                        alert(`✅ ${teamName} 的 Token 已复制到剪贴板！\n\n${tokenInfo}`);
+                    }).catch(err => {
+                        // 复制失败，显示Token让用户手动复制
+                        prompt('复制失败，请手动复制Token：', data.access_token);
+                    });
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
         // 更新 Token
         async function updateToken(teamId) {
             const sessionJson = prompt('请粘贴新的 Session JSON:');
@@ -1093,6 +1146,33 @@
 
                 if (data.success) {
                     alert('Team 删除成功！');
+                    loadTeams();
+                } else {
+                    alert('错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 一键删除所有Token已过期的Team
+        async function deleteExpiredTeams() {
+            if (!confirm('⚠️ 确定要删除所有Token已过期的Team吗？\n\n此操作不可恢复！')) return;
+
+            try {
+                const response = await fetch('/api/admin/teams/delete-expired', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.deleted_count > 0) {
+                        const teamList = data.deleted_teams.join('\n- ');
+                        alert(`✅ ${data.message}\n\n已删除的Team：\n- ${teamList}`);
+                    } else {
+                        alert('✅ ' + data.message);
+                    }
                     loadTeams();
                 } else {
                     alert('错误: ' + data.error);
