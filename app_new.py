@@ -987,7 +987,41 @@ def admin_invite_auto():
                 "invite_id": result.get('invite_id')
             })
         else:
-            # 邀请失败，记录错误并尝试下一个Team
+            # 邀请失败，验证是否实际成功（检查pending列表）
+            import time
+            time.sleep(1)  # 等待API同步
+
+            pending_result = get_pending_invites(team['access_token'], team['account_id'])
+            if pending_result['success']:
+                pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
+                if email.lower() in pending_emails:
+                    # 实际已成功（在pending列表中）
+                    temp_expire_at = None
+                    if is_temp and temp_hours > 0:
+                        now = datetime.utcnow()
+                        temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+
+                    Invitation.create(
+                        team_id=team['id'],
+                        email=email,
+                        invite_id=None,
+                        status='success',
+                        is_temp=is_temp,
+                        temp_expire_at=temp_expire_at
+                    )
+                    Team.update_last_invite(team['id'])
+
+                    message = f"已成功邀请 {email} 加入 {team['name']}（验证确认）"
+                    if len(tried_teams) > 1:
+                        message += f"（尝试了 {len(tried_teams)} 个Team）"
+
+                    return jsonify({
+                        "success": True,
+                        "message": message,
+                        "team_name": team['name']
+                    })
+
+            # 确实失败，记录错误并尝试下一个Team
             last_error = f"{team['name']}: {result.get('error', '未知错误')}"
             continue
 
