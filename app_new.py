@@ -104,14 +104,29 @@ def join_team():
     if not key_info:
         return jsonify({"success": False, "error": "无效的访问密钥"}), 400
 
-    # 获取所有可用Team（排除token过期的）
+    # 方案2优化：智能选择Team + 限制重试次数
+    # 1. 获取所有Team（排除token过期的）
     all_teams = Team.get_all()
-    available_teams = [t for t in all_teams if t.get('token_status') != 'expired']
+    all_teams = [t for t in all_teams if t.get('token_status') != 'expired']
 
-    if not available_teams:
+    if not all_teams:
         return jsonify({"success": False, "error": "当前无可用 Team，请联系管理员"}), 400
 
-    # 优先使用已分配的Team
+    # 2. 只选择通过我们系统邀请的成员数 < 4 的Team
+    available_teams = []
+    for team in all_teams:
+        invited_count = Invitation.get_success_count_by_team(team['id'])
+        if invited_count < 4:
+            team['invited_count'] = invited_count  # 保存邀请数
+            available_teams.append(team)
+
+    if not available_teams:
+        return jsonify({"success": False, "error": "所有 Team 名额已满，请联系管理员"}), 400
+
+    # 3. 按最近邀请时间排序（最近成功的在前，命中率更高）
+    available_teams.sort(key=lambda t: t.get('last_invite_at') or '', reverse=True)
+
+    # 4. 优先使用已分配的Team
     assigned_team_id = key_info.get('team_id')
     if assigned_team_id:
         assigned_team = next((t for t in available_teams if t['id'] == assigned_team_id), None)
@@ -119,15 +134,19 @@ def join_team():
             # 将已分配的Team移到列表最前面
             available_teams = [assigned_team] + [t for t in available_teams if t['id'] != assigned_team_id]
 
-    # 记录尝试过的Team和失败原因
+    # 5. 最多尝试3个Team
+    max_attempts = 3
     tried_teams = []
     last_error = None
 
-    # 遍历所有可用Team，直到成功
-    for team in available_teams:
+    # 遍历可用Team，最多尝试3次
+    for i, team in enumerate(available_teams):
+        if i >= max_attempts:
+            break  # 限制最多尝试3次
+
         tried_teams.append(team['name'])
 
-        # 检查实际成员数
+        # 检查实际成员数（API获取）
         members_result = get_team_members(team['access_token'], team['account_id'])
         if not members_result['success']:
             last_error = f"无法获取{team['name']}成员列表"
@@ -136,9 +155,9 @@ def join_team():
         members = members_result.get('members', [])
         non_owner_members = [m for m in members if m.get('role') != 'account-owner']
 
-        # Team已满，尝试下一个
+        # 实际成员数已满，跳过此Team
         if len(non_owner_members) >= 4:
-            last_error = f"{team['name']}已满员"
+            last_error = f"{team['name']}实际成员已满"
             continue
 
         # 检查该邮箱是否已在此Team中
@@ -873,7 +892,7 @@ def kick_member_by_email(team_id):
 @app.route('/api/admin/invite-auto', methods=['POST'])
 @admin_required
 def admin_invite_auto():
-    """管理员邀请成员(自动分配Team)"""
+    """管理员邀请成员(自动分配Team，智能重试)"""
     data = request.json
     email = data.get('email', '').strip()
     is_temp = data.get('is_temp', False)
@@ -882,57 +901,101 @@ def admin_invite_auto():
     if not email:
         return jsonify({"success": False, "error": "请输入邮箱"}), 400
 
-    # 获取可用的Team
-    available_teams = Team.get_available_teams()
+    # 方案2优化：智能选择Team + 限制重试次数
+    # 1. 获取所有Team（排除token过期的）
+    all_teams = Team.get_all()
+    all_teams = [t for t in all_teams if t.get('token_status') != 'expired']
+
+    if not all_teams:
+        return jsonify({"success": False, "error": "当前无可用 Team，请先添加 Team"}), 400
+
+    # 2. 只选择通过我们系统邀请的成员数 < 4 的Team
+    available_teams = []
+    for team in all_teams:
+        invited_count = Invitation.get_success_count_by_team(team['id'])
+        if invited_count < 4:
+            team['invited_count'] = invited_count
+            available_teams.append(team)
+
     if not available_teams:
-        return jsonify({"success": False, "error": "当前无可用 Team,请先添加 Team"}), 400
+        return jsonify({"success": False, "error": "所有 Team 名额已满，请先添加 Team"}), 400
 
-    team = available_teams[0]  # 选择第一个可用的Team
+    # 3. 按最近邀请时间排序（最近成功的在前）
+    available_teams.sort(key=lambda t: t.get('last_invite_at') or '', reverse=True)
 
-    # 检查该邮箱是否已被邀请到该Team
-    invited_emails = Invitation.get_all_emails_by_team(team['id'])
-    if email in invited_emails:
-        return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
+    # 4. 最多尝试3个Team
+    max_attempts = 3
+    tried_teams = []
+    last_error = None
 
-    # 执行邀请
-    result = invite_to_team(team['access_token'], team['account_id'], email, team['id'])
+    for i, team in enumerate(available_teams):
+        if i >= max_attempts:
+            break
 
-    if result['success']:
-        # 计算过期时间 - 使用UTC时间
-        temp_expire_at = None
-        if is_temp and temp_hours > 0:
-            now = datetime.utcnow()
-            temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+        tried_teams.append(team['name'])
 
-        # 记录邀请
-        Invitation.create(
-            team_id=team['id'],
-            email=email,
-            invite_id=result.get('invite_id'),
-            status='success',
-            is_temp=is_temp,
-            temp_expire_at=temp_expire_at
-        )
+        # 检查实际成员数
+        members_result = get_team_members(team['access_token'], team['account_id'])
+        if not members_result['success']:
+            last_error = f"无法获取{team['name']}成员列表"
+            continue
 
-        # 更新team的最后邀请时间（实现轮询）
-        Team.update_last_invite(team['id'])
+        members = members_result.get('members', [])
+        non_owner_members = [m for m in members if m.get('role') != 'account-owner']
 
-        return jsonify({
-            "success": True,
-            "message": f"已成功邀请 {email} 加入 {team['name']}",
-            "team_name": team['name'],
-            "invite_id": result.get('invite_id')
-        })
-    else:
-        Invitation.create(
-            team_id=team['id'],
-            email=email,
-            status='failed'
-        )
-        return jsonify({
-            "success": False,
-            "error": f"邀请失败: {result.get('error', '未知错误')}"
-        }), 500
+        # 实际成员数已满，跳过
+        if len(non_owner_members) >= 4:
+            last_error = f"{team['name']}实际成员已满"
+            continue
+
+        # 检查该邮箱是否已在此Team中
+        member_emails = [m.get('email', '').lower() for m in members]
+        if email.lower() in member_emails:
+            return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
+
+        # 执行邀请
+        result = invite_to_team(team['access_token'], team['account_id'], email, team['id'])
+
+        if result['success']:
+            # 邀请成功！计算过期时间
+            temp_expire_at = None
+            if is_temp and temp_hours > 0:
+                now = datetime.utcnow()
+                temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
+
+            # 记录邀请
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                invite_id=result.get('invite_id'),
+                status='success',
+                is_temp=is_temp,
+                temp_expire_at=temp_expire_at
+            )
+
+            # 更新team的最后邀请时间
+            Team.update_last_invite(team['id'])
+
+            message = f"已成功邀请 {email} 加入 {team['name']}"
+            if len(tried_teams) > 1:
+                message += f"（尝试了 {len(tried_teams)} 个Team）"
+
+            return jsonify({
+                "success": True,
+                "message": message,
+                "team_name": team['name'],
+                "invite_id": result.get('invite_id')
+            })
+        else:
+            # 邀请失败，记录错误并尝试下一个Team
+            last_error = f"{team['name']}: {result.get('error', '未知错误')}"
+            continue
+
+    # 所有Team都试过了，仍然失败
+    return jsonify({
+        "success": False,
+        "error": f"尝试了 {len(tried_teams)} 个Team均失败\n最后错误: {last_error}\n尝试的Team: {', '.join(tried_teams)}"
+    }), 500
 
 
 @app.route('/api/admin/kick-by-email-auto', methods=['POST'])

@@ -494,6 +494,17 @@ class Invitation:
             return [row[0] for row in cursor.fetchall()]
 
     @staticmethod
+    def get_success_count_by_team(team_id):
+        """获取 Team 的成功邀请数量（用于判断Team是否已满）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COUNT(DISTINCT email) FROM invitations
+                WHERE team_id = ? AND status = 'success'
+            ''', (team_id,))
+            return cursor.fetchone()[0]
+
+    @staticmethod
     def get_temp_expired():
         """获取所有已过期的临时邀请（使用UTC时间比较）"""
         with get_db() as conn:
