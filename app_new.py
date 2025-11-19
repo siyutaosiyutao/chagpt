@@ -468,6 +468,27 @@ def update_team_token(team_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/admin/teams/<int:team_id>/token-export', methods=['GET'])
+@admin_required
+def export_team_token(team_id):
+    """导出 Team 的 Token 信息"""
+    try:
+        team = Team.get_by_id(team_id)
+        if not team:
+            return jsonify({"success": False, "error": "Team 不存在"}), 404
+
+        return jsonify({
+            "success": True,
+            "access_token": team['access_token'],
+            "account_id": team['account_id'],
+            "organization_id": team.get('organization_id'),
+            "name": team['name'],
+            "email": team.get('email')
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/admin/keys', methods=['GET'])
 @admin_required
 def get_all_keys():
