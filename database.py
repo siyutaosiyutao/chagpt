@@ -114,6 +114,13 @@ def init_db():
             )
         ''')
 
+        # 创建唯一索引：防止同一邮箱在同一team中有多个pending/success记录
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_team_email_active
+            ON invitations(team_id, LOWER(email))
+            WHERE status IN ('pending', 'success')
+        ''')
+
         # 自动检测配置表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS auto_kick_config (
@@ -633,6 +640,37 @@ class Invitation:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (team_id, key_id, email, user_id, invite_id, status, is_temp, temp_expire_at))
             return cursor.lastrowid
+
+    @staticmethod
+    def update_status(team_id, email, status, invite_id=None, temp_expire_at=None):
+        """更新邀请状态（用于从pending更新为success）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            if invite_id and temp_expire_at:
+                cursor.execute('''
+                    UPDATE invitations
+                    SET status = ?, invite_id = ?, temp_expire_at = ?
+                    WHERE team_id = ? AND LOWER(email) = LOWER(?)
+                ''', (status, invite_id, temp_expire_at, team_id, email))
+            elif invite_id:
+                cursor.execute('''
+                    UPDATE invitations
+                    SET status = ?, invite_id = ?
+                    WHERE team_id = ? AND LOWER(email) = LOWER(?)
+                ''', (status, invite_id, team_id, email))
+            elif temp_expire_at:
+                cursor.execute('''
+                    UPDATE invitations
+                    SET status = ?, temp_expire_at = ?
+                    WHERE team_id = ? AND LOWER(email) = LOWER(?)
+                ''', (status, temp_expire_at, team_id, email))
+            else:
+                cursor.execute('''
+                    UPDATE invitations
+                    SET status = ?
+                    WHERE team_id = ? AND LOWER(email) = LOWER(?)
+                ''', (status, team_id, email))
+            return cursor.rowcount > 0
 
     @staticmethod
     def get_by_team(team_id):

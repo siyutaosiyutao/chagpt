@@ -164,13 +164,16 @@ def join_team():
         member_emails = [m.get('email', '').lower() for m in members]
         if email.lower() in member_emails:
             # 已经是成员，直接返回成功
-            Invitation.create(
-                team_id=team['id'],
-                email=email,
-                key_id=key_info['id'],
-                status='success',
-                is_temp=False
-            )
+            try:
+                Invitation.create(
+                    team_id=team['id'],
+                    email=email,
+                    key_id=key_info['id'],
+                    status='success',
+                    is_temp=False
+                )
+            except:
+                pass  # 可能已存在记录，忽略
             AccessKey.cancel(key_info['id'])
             return jsonify({
                 "success": True,
@@ -178,6 +181,27 @@ def join_team():
                 "team_name": team['name'],
                 "email": email
             })
+
+        # 先插入pending记录占位，防止并发邀请到多个team
+        try:
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                key_id=key_info['id'],
+                status='pending',
+                is_temp=key_info['is_temp'],
+                temp_expire_at=None
+            )
+        except Exception as e:
+            # 该邮箱正在被其他请求处理（可能在其他team），跳过此team
+            import sqlite3
+            if isinstance(e.__cause__, sqlite3.IntegrityError) or 'UNIQUE constraint failed' in str(e):
+                last_error = f"{team['name']}: 该邮箱正在处理中或已在其他team"
+                continue
+            else:
+                # 其他错误，继续尝试
+                last_error = f"{team['name']}: 数据库错误 - {str(e)}"
+                continue
 
         # 尝试邀请
         result = invite_to_team(
@@ -188,20 +212,18 @@ def join_team():
         )
 
         if result['success']:
-            # 邀请成功！计算过期时间
+            # 邀请成功！计算过期时间并更新状态
             temp_expire_at = None
             if key_info['is_temp'] and key_info['temp_hours'] > 0:
                 now = datetime.utcnow()
                 temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
 
-            # 记录邀请
-            Invitation.create(
+            # 更新状态为success
+            Invitation.update_status(
                 team_id=team['id'],
                 email=email,
-                key_id=key_info['id'],
-                invite_id=result.get('invite_id'),
                 status='success',
-                is_temp=key_info['is_temp'],
+                invite_id=result.get('invite_id'),
                 temp_expire_at=temp_expire_at
             )
 
@@ -232,20 +254,17 @@ def join_team():
             if pending_result['success']:
                 pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
                 if email.lower() in pending_emails:
-                    # 实际已成功
+                    # 实际已成功，更新状态
                     temp_expire_at = None
                     if key_info['is_temp'] and key_info['temp_hours'] > 0:
                         now = datetime.utcnow()
                         temp_expire_at = (now + timedelta(hours=key_info['temp_hours'])).strftime('%Y-%m-%d %H:%M:%S')
 
-                    Invitation.delete_by_email(team['id'], email)
-                    Invitation.create(
+                    Invitation.update_status(
                         team_id=team['id'],
                         email=email,
-                        key_id=key_info['id'],
-                        invite_id=None,
                         status='success',
-                        is_temp=key_info['is_temp'],
+                        invite_id=None,
                         temp_expire_at=temp_expire_at
                     )
                     AccessKey.cancel(key_info['id'])
@@ -262,7 +281,8 @@ def join_team():
                         "email": email
                     })
 
-            # 确实失败，记录错误并尝试下一个Team
+            # 确实失败，删除pending记录并尝试下一个Team
+            Invitation.delete_by_email(team['id'], email)
             last_error = f"{team['name']}: {result.get('error', '未知错误')}"
             continue
 
@@ -761,23 +781,39 @@ def admin_invite_member(team_id):
     if email in invited_emails:
         return jsonify({"success": False, "error": "该邮箱已被邀请过"}), 400
 
+    # 先插入pending记录占位，防止并发邀请
+    try:
+        Invitation.create(
+            team_id=team_id,
+            email=email,
+            status='pending',
+            is_temp=is_temp,
+            temp_expire_at=None
+        )
+    except Exception as e:
+        # 该邮箱正在被其他请求处理
+        import sqlite3
+        if isinstance(e.__cause__, sqlite3.IntegrityError) or 'UNIQUE constraint failed' in str(e):
+            return jsonify({"success": False, "error": "该邮箱正在处理中，请稍后再试"}), 400
+        else:
+            return jsonify({"success": False, "error": f"数据库错误: {str(e)}"}), 500
+
     # 执行邀请
     result = invite_to_team(team['access_token'], team['account_id'], email, team_id)
 
     if result['success']:
-        # 计算过期时间 - 使用UTC时间
+        # 计算过期时间 - 使用UTC时间并更新状态
         temp_expire_at = None
         if is_temp and temp_hours > 0:
             now = datetime.utcnow()
             temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
 
-        # 记录邀请
-        Invitation.create(
+        # 更新状态为success
+        Invitation.update_status(
             team_id=team_id,
             email=email,
-            invite_id=result.get('invite_id'),
             status='success',
-            is_temp=is_temp,
+            invite_id=result.get('invite_id'),
             temp_expire_at=temp_expire_at
         )
 
@@ -799,58 +835,50 @@ def admin_invite_member(team_id):
         if pending_result['success']:
             pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
             if email.lower() in pending_emails:
-                # 实际已成功（在 pending 列表中），先删除可能存在的failed记录
-                Invitation.delete_by_email(team_id, email)
-                
+                # 实际已成功（在 pending 列表中），更新状态
                 temp_expire_at = None
                 if is_temp and temp_hours > 0:
                     now = datetime.utcnow()
                     temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
-                
-                Invitation.create(
+
+                Invitation.update_status(
                     team_id=team_id,
                     email=email,
                     status='success',
-                    is_temp=is_temp,
+                    invite_id=None,
                     temp_expire_at=temp_expire_at
                 )
                 Team.update_last_invite(team_id)
-                
+
                 return jsonify({
                     "success": True,
                     "message": f"已成功邀请 {email}（验证确认）",
                     "verified": True
                 })
-        
+
         # 2. 检查是否已在成员列表中
         members_result = get_team_members(team['access_token'], team['account_id'], team_id)
         if members_result['success']:
             member_emails = [m.get('email', '').lower() for m in members_result.get('members', [])]
             if email.lower() in member_emails:
-                # 已经是成员了，先删除可能存在的failed记录
-                Invitation.delete_by_email(team_id, email)
-                
-                Invitation.create(
+                # 已经是成员了，更新状态
+                Invitation.update_status(
                     team_id=team_id,
                     email=email,
                     status='success',
-                    is_temp=is_temp,
+                    invite_id=None,
                     temp_expire_at=None
                 )
                 Team.update_last_invite(team_id)
-                
+
                 return jsonify({
                     "success": True,
                     "message": f"{email} 已是团队成员",
                     "already_member": True
                 })
-        
-        # 3. 确实失败
-        Invitation.create(
-            team_id=team_id,
-            email=email,
-            status='failed'
-        )
+
+        # 3. 确实失败，删除pending记录
+        Invitation.delete_by_email(team_id, email)
         return jsonify({
             "success": False,
             "error": f"邀请失败: {result.get('error', '未知错误')}"
@@ -989,23 +1017,42 @@ def admin_invite_auto():
         if email.lower() in member_emails:
             return jsonify({"success": False, "error": f"该邮箱已在 {team['name']} 团队中"}), 400
 
+        # 先插入pending记录占位，防止并发邀请到多个team
+        try:
+            Invitation.create(
+                team_id=team['id'],
+                email=email,
+                status='pending',
+                is_temp=is_temp,
+                temp_expire_at=None
+            )
+        except Exception as e:
+            # 该邮箱正在被其他请求处理（可能在其他team），跳过此team
+            import sqlite3
+            if isinstance(e.__cause__, sqlite3.IntegrityError) or 'UNIQUE constraint failed' in str(e):
+                last_error = f"{team['name']}: 该邮箱正在处理中或已在其他team"
+                continue
+            else:
+                # 其他错误，继续尝试
+                last_error = f"{team['name']}: 数据库错误 - {str(e)}"
+                continue
+
         # 执行邀请
         result = invite_to_team(team['access_token'], team['account_id'], email, team['id'])
 
         if result['success']:
-            # 邀请成功！计算过期时间
+            # 邀请成功！计算过期时间并更新状态
             temp_expire_at = None
             if is_temp and temp_hours > 0:
                 now = datetime.utcnow()
                 temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
 
-            # 记录邀请
-            Invitation.create(
+            # 更新状态为success
+            Invitation.update_status(
                 team_id=team['id'],
                 email=email,
-                invite_id=result.get('invite_id'),
                 status='success',
-                is_temp=is_temp,
+                invite_id=result.get('invite_id'),
                 temp_expire_at=temp_expire_at
             )
 
@@ -1031,18 +1078,17 @@ def admin_invite_auto():
             if pending_result['success']:
                 pending_emails = [inv.get('email_address', '').lower() for inv in pending_result.get('invites', [])]
                 if email.lower() in pending_emails:
-                    # 实际已成功（在pending列表中）
+                    # 实际已成功（在pending列表中），更新状态
                     temp_expire_at = None
                     if is_temp and temp_hours > 0:
                         now = datetime.utcnow()
                         temp_expire_at = (now + timedelta(hours=temp_hours)).strftime('%Y-%m-%d %H:%M:%S')
 
-                    Invitation.create(
+                    Invitation.update_status(
                         team_id=team['id'],
                         email=email,
-                        invite_id=None,
                         status='success',
-                        is_temp=is_temp,
+                        invite_id=None,
                         temp_expire_at=temp_expire_at
                     )
                     Team.update_last_invite(team['id'])
@@ -1057,7 +1103,8 @@ def admin_invite_auto():
                         "team_name": team['name']
                     })
 
-            # 确实失败，记录错误并尝试下一个Team
+            # 确实失败，删除pending记录，尝试下一个Team
+            Invitation.delete_by_email(team['id'], email)
             last_error = f"{team['name']}: {result.get('error', '未知错误')}"
             continue
 
