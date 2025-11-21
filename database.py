@@ -114,7 +114,10 @@ def init_db():
             )
         ''')
 
-        # 创建唯一索引：防止同一邮箱在同一team中同时有多个pending记录（只限制pending，不限制success历史记录）
+        # 删除旧的唯一索引（该索引限制了pending和success，导致无法保存多条success历史记录）
+        cursor.execute('DROP INDEX IF EXISTS idx_unique_team_email_active')
+
+        # 创建新的唯一索引：防止同一邮箱在同一team中同时有多个pending记录（只限制pending，不限制success历史记录）
         cursor.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_team_email_pending
             ON invitations(team_id, LOWER(email))
