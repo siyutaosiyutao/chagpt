@@ -160,9 +160,11 @@ class XHSOrderSyncService:
                         break  # 到顶了或出错
                 
                 status = '未知'
+                container_text_snippet = ""  # 用于调试
                 if parent_container:
                     try:
                         container_text = parent_container.text
+                        container_text_snippet = container_text[:500] if container_text else "(empty)"  # 保存前500字符
                         if '已发货未签收' in container_text:
                             status = '已发货未签收'
                         elif '已取消' in container_text:
@@ -176,9 +178,16 @@ class XHSOrderSyncService:
                         elif '已签收' in container_text:
                             status = '已签收'
                     except:
+                        container_text_snippet = "(error)"
                         pass
+                else:
+                    container_text_snippet = "(no parent found)"
                 
-                orders_data.append({'order': order_number, 'status': status})
+                orders_data.append({
+                    'order': order_number,
+                    'status': status,
+                    'container_text': container_text_snippet  # 调试用
+                })
 
             # 过滤并打印日志
             for item in orders_data:
