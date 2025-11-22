@@ -162,42 +162,42 @@ class XHSOrderSyncService:
                     except:
                         break
                 
-                # 简化逻辑：只检测是否有"修改价格"按钮
-                # 有按钮 = 待付款 = 跳过
-                # 无按钮 = 已付款 = 同步
-                has_modify_price_button = False
+                # 最简单的逻辑：检测是否有"发货信息"按钮
+                # 有"发货信息"按钮 = 已发货 = 同步
+                # 无"发货信息"按钮 = 未发货/未付款等 = 跳过
+                has_shipping_info_button = False
                 debug_info = ""
                 button_texts = []
                 
                 if parent_container:
                     try:
-                        # 在父容器中查找"修改价格"按钮
+                        # 在父容器中查找"发货信息"按钮
                         buttons = parent_container.find_elements(By.XPATH, ".//button | .//a | .//span")
                         for btn in buttons:
                             btn_text = btn.text.strip()
                             if btn_text:  # 只记录非空按钮
                                 button_texts.append(btn_text)
-                            if '修改价格' in btn_text or '修改订单' in btn_text:
-                                has_modify_price_button = True
+                            if '发货信息' in btn_text:
+                                has_shipping_info_button = True
                                 debug_info = f"found: {btn_text}"
                         
-                        if not has_modify_price_button:
-                            debug_info = f"no modify button (found {len(button_texts)} buttons)"
+                        if not has_shipping_info_button:
+                            debug_info = f"no shipping info button (found {len(button_texts)} buttons)"
                     except Exception as e:
                         debug_info = f"error: {e}"
                 else:
                     debug_info = "no parent found"
                 
-                # 只同步没有"修改价格"按钮的订单（已付款）
-                if not has_modify_price_button:
+                # 只同步有"发货信息"按钮的订单（已发货）
+                if has_shipping_info_button:
                     valid_orders.add(order_number)
-                    print(f"  ✓ 已付款订单: {order_number} ({debug_info})")
+                    print(f"  ✓ 已发货订单: {order_number} ({debug_info})")
                 else:
-                    print(f"  ✗ 待付款订单(跳过): {order_number} ({debug_info})")
+                    print(f"  ✗ 未发货订单(跳过): {order_number} ({debug_info})")
                 
                 orders_data.append({
                     'order': order_number,
-                    'has_modify_button': has_modify_price_button,
+                    'has_shipping_button': has_shipping_info_button,
                     'button_texts': button_texts[:10],  # 只保存前10个按钮
                     'debug': debug_info
                 })
