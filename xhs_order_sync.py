@@ -157,7 +157,8 @@ class XHSOrderSyncService:
                     
                     results.push({
                         order: orderNum,
-                        status: status
+                        status: status,
+                        context: context
                     });
                 }
                 
