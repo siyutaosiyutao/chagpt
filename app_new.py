@@ -5,11 +5,15 @@ from flask import Flask, request, jsonify, render_template, session, redirect, u
 from curl_cffi import requests as cf_requests
 import json
 from functools import wraps
-from database import init_db, Team, AccessKey, Invitation, AutoKickConfig, KickLog, LoginAttempt
+from database import init_db, Team, AccessKey, Invitation, AutoKickConfig, KickLog, LoginAttempt, Order, XHSConfig
 from datetime import datetime, timedelta
 import pytz
 from config import *
 from auto_kick_service import auto_kick_service
+import threading
+
+# 全局同步锁，防止并发同步导致资源耗尽
+sync_lock = threading.Lock()
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -101,6 +105,60 @@ def join_team():
 
     # 验证密钥
     key_info = AccessKey.get_by_code(key_code)
+    
+    # 🆕 如果密钥不存在，且看起来像订单号（P开头+数字），尝试按需同步
+    if not key_info and key_code.startswith('P') and len(key_code) > 10:
+        print(f"订单号 {key_code} 不存在，尝试按需同步...")
+        
+        # 检查是否配置了小红书 Cookie
+        xhs_config = XHSConfig.get()
+        if xhs_config and xhs_config.get('cookies'):
+            # 使用非阻塞锁，如果已有同步任务在运行，则跳过本次触发
+            # 避免多个用户同时触发导致服务器负载过高
+            if sync_lock.acquire(blocking=False):
+                try:
+                    # 触发一次快速同步（只提取最近3-5个订单）
+                    from xhs_order_sync import XHSOrderSyncService
+                    import json
+                    
+                    print("🔄 触发按需同步（只提取最近3-5个订单）...")
+                    service = XHSOrderSyncService(headless=True)
+                    
+                    try:
+                        cookies = json.loads(xhs_config['cookies'])
+                        if not cookies:
+                            raise ValueError("Cookie 为空")
+                    except (json.JSONDecodeError, ValueError) as e:
+                        print(f"❌ Cookie 解析失败: {e}")
+                        # 继续后续流程（返回无效密钥）
+                        return jsonify({"success": False, "error": "无效的访问密钥"}), 400
+
+                    # 极速同步：只滚动2次，提取最近3-5个订单（约15-20秒）
+                    result = service.sync_with_cookies(cookies, max_scrolls=2)
+                    
+                    if result['success']:
+                        print(f"✅ 按需同步成功，新增 {result['new_orders']} 个订单")
+                        # 重新查询密钥
+                        key_info = AccessKey.get_by_code(key_code)
+                        
+                        if key_info:
+                            print(f"✅ 找到订单号 {key_code}，继续邀请流程")
+                    else:
+                        print(f"❌ 按需同步失败: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ 按需同步异常: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    sync_lock.release()
+            else:
+                print("⚠️ 同步任务已在运行，跳过本次触发")
+                # 可以选择在这里等待一小会儿，或者直接返回
+                import time
+                time.sleep(2) # 简单等待一下，看是否能查到
+                key_info = AccessKey.get_by_code(key_code)
+    
     if not key_info:
         return jsonify({"success": False, "error": "无效的访问密钥"}), 400
 
@@ -1290,6 +1348,132 @@ def get_kick_status():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# ==================== 小红书订单管理路由 ====================
+
+@app.route('/api/admin/xhs/config', methods=['GET'])
+@admin_required
+def get_xhs_config():
+    """获取小红书配置"""
+    try:
+        config = XHSConfig.get()
+        if config:
+            # 隐藏完整Cookie，只显示是否已配置
+            config['cookies_configured'] = bool(config.get('cookies'))
+            config['cookies'] = None  # 不返回完整Cookie
+        return jsonify({"success": True, "config": config})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/xhs/config', methods=['POST'])
+@admin_required
+def update_xhs_config():
+    """更新小红书配置"""
+    try:
+        data = request.json
+        cookies = data.get('cookies')
+        
+        # 验证Cookie格式（如果提供）
+        if cookies:
+            try:
+                json.loads(cookies)  # 验证是否为有效JSON
+            except json.JSONDecodeError:
+                return jsonify({"success": False, "error": "Cookie格式错误，必须是有效的JSON"}), 400
+        
+        # 更新配置（只更新Cookie，忽略同步设置）
+        XHSConfig.update(
+            cookies=cookies,
+            sync_enabled=True, # 默认启用
+            sync_interval_hours=6 # 默认值
+        )
+        
+        return jsonify({"success": True, "message": "配置已更新"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/xhs/sync', methods=['POST'])
+@admin_required
+def trigger_xhs_sync():
+    """手动触发订单同步"""
+    try:
+        # 使用非阻塞锁防止并发
+        if not sync_lock.acquire(blocking=False):
+            return jsonify({"success": False, "error": "同步任务已在运行中，请稍后再试"}), 409
+
+        def run_sync():
+            try:
+                from xhs_order_sync import XHSOrderSyncService
+                
+                config = XHSConfig.get()
+                if not config or not config.get('cookies'):
+                    return
+                
+                cookies = json.loads(config['cookies'])
+                service = XHSOrderSyncService(headless=True)
+                # 手动同步提取最近50个订单
+                service.sync_with_cookies(cookies, max_scrolls=10)
+            except Exception as e:
+                print(f"手动同步失败: {e}")
+            finally:
+                sync_lock.release()
+
+        # 在后台线程运行
+        import threading
+        thread = threading.Thread(target=run_sync)
+        thread.start()
+        
+        return jsonify({"success": True, "message": "同步任务已启动"})
+    except Exception as e:
+        if sync_lock.locked():
+            sync_lock.release()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/xhs/status', methods=['GET'])
+@admin_required
+def get_xhs_status():
+    """获取同步状态"""
+    try:
+        config = XHSConfig.get() or {}
+        stats = Order.get_stats()
+        
+        status = {
+            "cookies_configured": bool(config.get('cookies')),
+            "last_sync_at": config.get('last_sync_at'),
+            "last_error": config.get('last_error'),
+            "is_running": sync_lock.locked() # 检查锁状态
+        }
+        
+        return jsonify({
+            "success": True,
+            "status": status,
+            "stats": stats
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/xhs/orders', methods=['GET'])
+@admin_required
+def get_xhs_orders():
+    """获取订单列表"""
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        orders = Order.get_all(limit=limit, offset=offset)
+        stats = Order.get_stats()
+        
+        return jsonify({
+            "success": True,
+            "orders": orders,
+            "stats": stats
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/health')
 def health():
     """健康检查"""
@@ -1307,5 +1491,11 @@ if __name__ == '__main__':
     config = AutoKickConfig.get()
     if config and config['enabled']:
         auto_kick_service.start()
+    
+    # 检查小红书订单同步配置
+    # 注意：已改为按需同步，不再启动定时任务
+    # xhs_config = XHSConfig.get()
+    # if xhs_config and xhs_config.get('sync_enabled'):
+    #     xhs_scheduler.start()
 
     app.run(host=HOST, port=PORT, debug=DEBUG)
