@@ -175,7 +175,7 @@ class XHSOrderSyncService:
                     valid_orders.add(order_num)
                     print(f"  ✓ 找到符合条件的订单: {order_num} (已发货未签收)")
                 elif status == '已取消':
-                    print(f"  ✗ 过滤订单: {order_num} (已取消)")
+                    print(f\"  ✗ 过滤订单: {order_num} (已取消)")
                 elif status == '已完成':
                     print(f"  ✗ 过滤订单: {order_num} (已完成)")
                 elif status in ['待付款', '未付款']:
