@@ -169,6 +169,9 @@ def init_db():
         ''')
 
         conn.commit()
+    
+    # 初始化小红书相关表
+    init_xhs_tables()
 
 
 class Team:
@@ -888,3 +891,282 @@ class LoginAttempt:
                 DELETE FROM login_attempts
                 WHERE created_at < datetime('now', '-' || ? || ' days')
             ''', (days,))
+
+
+class Order:
+    """小红书订单管理"""
+    
+    @staticmethod
+    def create_table():
+        """创建订单表（如果不存在）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_number TEXT NOT NULL UNIQUE,
+                    key_id INTEGER,
+                    is_used BOOLEAN DEFAULT 0,
+                    user_email TEXT,
+                    extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    used_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (key_id) REFERENCES access_keys (id) ON DELETE SET NULL
+                )
+            ''')
+            
+            # 创建索引加速查询
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_orders_number
+                ON orders(order_number)
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_orders_used
+                ON orders(is_used, created_at)
+            ''')
+    
+    @staticmethod
+    def create(order_number):
+        """
+        创建订单记录并自动生成关联的访问密钥
+        返回 (order_id, key_code)
+        """
+        # 检查订单是否已存在
+        existing = Order.get_by_number(order_number)
+        if existing:
+            return None  # 订单已存在
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # 创建访问密钥（使用订单号作为密钥）
+            cursor.execute('''
+                INSERT INTO access_keys (key_code, is_temp, temp_hours)
+                VALUES (?, 0, 0)
+            ''', (order_number,))
+            key_id = cursor.lastrowid
+            
+            # 创建订单记录
+            cursor.execute('''
+                INSERT INTO orders (order_number, key_id)
+                VALUES (?, ?)
+            ''', (order_number, key_id))
+            order_id = cursor.lastrowid
+            
+            return {'id': order_id, 'key_id': key_id, 'key_code': order_number}
+    
+    @staticmethod
+    def get_by_number(order_number):
+        """根据订单号查询"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT o.*, ak.key_code
+                FROM orders o
+                LEFT JOIN access_keys ak ON o.key_id = ak.id
+                WHERE o.order_number = ?
+            ''', (order_number,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    @staticmethod
+    def get_all(limit=1000, offset=0):
+        """获取所有订单"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT o.*, ak.key_code,
+                       (SELECT COUNT(*) FROM invitations WHERE key_id = o.key_id) as usage_count
+                FROM orders o
+                LEFT JOIN access_keys ak ON o.key_id = ak.id
+                ORDER BY o.created_at DESC
+                LIMIT ? OFFSET ?
+            ''', (limit, offset))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    @staticmethod
+    def get_unused_count():
+        """获取未使用订单数量"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM orders WHERE is_used = 0')
+            return cursor.fetchone()[0]
+    
+    @staticmethod
+    def mark_as_used(order_number, user_email):
+        """标记订单为已使用"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE orders
+                SET is_used = 1,
+                    user_email = ?,
+                    used_at = CURRENT_TIMESTAMP
+                WHERE order_number = ?
+            ''', (user_email, order_number))
+            return cursor.rowcount > 0
+    
+    @staticmethod
+    def get_stats():
+        """获取订单统计信息"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # 总订单数
+            cursor.execute('SELECT COUNT(*) FROM orders')
+            total = cursor.fetchone()[0]
+            
+            # 已使用订单数
+            cursor.execute('SELECT COUNT(*) FROM orders WHERE is_used = 1')
+            used = cursor.fetchone()[0]
+            
+            # 今日新增订单
+            cursor.execute('''
+                SELECT COUNT(*) FROM orders
+                WHERE DATE(extracted_at) = DATE('now')
+            ''')
+            today = cursor.fetchone()[0]
+            
+            return {
+                'total': total,
+                'used': used,
+                'unused': total - used,
+                'today': today
+            }
+    
+    @staticmethod
+    def batch_create(order_numbers):
+        """
+        批量创建订单
+        返回 {'created': count, 'skipped': count, 'orders': [...]}
+        """
+        created_count = 0
+        skipped_count = 0
+        created_orders = []
+        
+        for order_number in order_numbers:
+            result = Order.create(order_number)
+            if result:
+                created_count += 1
+                created_orders.append(result)
+            else:
+                skipped_count += 1
+        
+        return {
+            'created': created_count,
+            'skipped': skipped_count,
+            'orders': created_orders
+        }
+
+
+class XHSConfig:
+    """小红书配置管理"""
+    
+    @staticmethod
+    def create_table():
+        """创建配置表（如果不存在）"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS xhs_config (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cookies TEXT,
+                    last_sync_at TIMESTAMP,
+                    sync_enabled BOOLEAN DEFAULT 0,
+                    sync_interval_hours INTEGER DEFAULT 6,
+                    last_error TEXT,
+                    error_count INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 插入默认配置（如果不存在）
+            cursor.execute('SELECT COUNT(*) FROM xhs_config')
+            if cursor.fetchone()[0] == 0:
+                cursor.execute('''
+                    INSERT INTO xhs_config (sync_enabled, sync_interval_hours)
+                    VALUES (0, 6)
+                ''')
+    
+    @staticmethod
+    def get():
+        """获取配置"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM xhs_config LIMIT 1')
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    @staticmethod
+    def update(cookies=None, sync_enabled=None, sync_interval_hours=None):
+        """更新配置"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            updates = []
+            params = []
+            
+            if cookies is not None:
+                updates.append('cookies = ?')
+                params.append(cookies)
+                # 清空错误信息（因为更新了Cookie）
+                updates.append('error_count = 0')
+                updates.append('last_error = NULL')
+            
+            if sync_enabled is not None:
+                updates.append('sync_enabled = ?')
+                params.append(sync_enabled)
+            
+            if sync_interval_hours is not None:
+                updates.append('sync_interval_hours = ?')
+                params.append(sync_interval_hours)
+            
+            if updates:
+                updates.append('updated_at = CURRENT_TIMESTAMP')
+                sql = f"UPDATE xhs_config SET {', '.join(updates)}"
+                cursor.execute(sql, params)
+    
+    @staticmethod
+    def update_last_sync():
+        """更新最后同步时间"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE xhs_config
+                SET last_sync_at = CURRENT_TIMESTAMP,
+                    error_count = 0,
+                    last_error = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+            ''')
+    
+    @staticmethod
+    def record_error(error_message):
+        """记录同步错误"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE xhs_config
+                SET error_count = error_count + 1,
+                    last_error = ?,
+                    updated_at = CURRENT_TIMESTAMP
+            ''', (error_message,))
+    
+    @staticmethod
+    def get_cookies_dict():
+        """获取Cookie字典（解析JSON）"""
+        config = XHSConfig.get()
+        if not config or not config['cookies']:
+            return None
+        
+        try:
+            import json
+            return json.loads(config['cookies'])
+        except:
+            return None
+
+
+# 初始化新表
+def init_xhs_tables():
+    """初始化小红书相关表"""
+    Order.create_table()
+    XHSConfig.create_table()

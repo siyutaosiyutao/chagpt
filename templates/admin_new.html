@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,7 +24,7 @@
             margin: 0 auto;
             background: white;
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             padding: 40px;
         }
 
@@ -150,7 +151,7 @@
 
         .team-card:hover {
             border-color: #667eea;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
 
         .team-header {
@@ -230,7 +231,7 @@
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0,0,0,0.5);
+            background-color: rgba(0, 0, 0, 0.5);
         }
 
         .modal-content {
@@ -314,6 +315,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>🎯 ChatGPT Team 管理后台</h1>
@@ -328,7 +330,8 @@
                 </div>
                 <div class="form-group">
                     <label>Session JSON (从浏览器复制):</label>
-                    <textarea name="session_data" required placeholder='{"user": {...}, "accessToken": "..."}' rows="6"></textarea>
+                    <textarea name="session_data" required placeholder='{"user": {...}, "accessToken": "..."}'
+                        rows="6"></textarea>
                 </div>
                 <button type="submit" class="btn btn-primary">添加 Team</button>
             </form>
@@ -374,10 +377,12 @@
         <div class="section">
             <h2>🔑 邀请码管理</h2>
             <div style="margin-bottom: 20px;">
-                <form id="createKeyForm" onsubmit="createKeys(event)" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                <form id="createKeyForm" onsubmit="createKeys(event)"
+                    style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
                     <div class="form-group" style="margin: 0;">
                         <label>生成数量:</label>
-                        <input type="number" id="key_count" name="count" value="1" min="1" max="20" style="width: 100px;">
+                        <input type="number" id="key_count" name="count" value="1" min="1" max="20"
+                            style="width: 100px;">
                     </div>
                     <div class="form-group" style="margin: 0;">
                         <label>
@@ -388,12 +393,13 @@
                     <button type="submit" class="btn btn-primary">生成邀请码</button>
                 </form>
             </div>
-            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
-                <button onclick="loadKeys()" class="btn btn-secondary">🔄 刷新</button>
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                <button onclick="toggleKeysList()" class="btn btn-primary" id="toggleKeysBtn">�️ 查看邀请码</button>
                 <button onclick="copyAllNormalKeys()" class="btn btn-primary">📋 一键复制所有普通邀请码</button>
-                <button onclick="copyAllTempKeys()" class="btn btn-primary" style="background: #ff6b6b;">📋 一键复制所有1日试用码</button>
+                <button onclick="copyAllTempKeys()" class="btn btn-primary" style="background: #ff6b6b;">📋
+                    一键复制所有1日试用码</button>
             </div>
-            <div id="keysList">加载中...</div>
+            <div id="keysList" style="display: none;"></div>
         </div>
 
         <!-- Auto-Kick 配置 -->
@@ -413,13 +419,56 @@
                 <div class="form-group">
                     <label>运行时间段 (北京时间):</label>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="number" id="start_hour" name="start_hour" value="0" min="0" max="23" style="width: 80px;">
+                        <input type="number" id="start_hour" name="start_hour" value="0" min="0" max="23"
+                            style="width: 80px;">
                         <span>时 至</span>
-                        <input type="number" id="end_hour" name="end_hour" value="23" min="0" max="23" style="width: 80px;">
+                        <input type="number" id="end_hour" name="end_hour" value="23" min="0" max="23"
+                            style="width: 80px;">
                         <span>时</span>
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary">保存配置</button>
+            </form>
+        </div>
+
+        <!-- 小红书订单同步配置 -->
+        <div class="section">
+            <h2>🛍️ 小红书订单同步</h2>
+
+            <!-- 同步状态展示 -->
+            <div id="xhsStatus" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                加载中...
+            </div>
+
+            <form id="xhsConfigForm" onsubmit="saveXHSConfig(event)">
+                <div class="form-group">
+                    <label>小红书 Cookie (JSON 格式):</label>
+                    <textarea id="xhs_cookies" name="cookies" placeholder='{
+  "cookie1": "value1",
+  "cookie2": "value2"
+}' rows="6"></textarea>
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        <strong>📌 获取方法：</strong><br>
+                        1. 登录小红书千帆后台 → 访问订单页面<br>
+                        2. 按 F12 → Network → 复制请求的 Cookie<br>
+                        3. 转换为 JSON 格式粘贴到此处
+                    </small>
+                </div>
+
+                <div
+                    style="margin-top: 15px; padding: 12px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
+                    <strong>💡 工作原理：</strong><br>
+                    • 用户输入订单号时自动检测<br>
+                    • 如果订单号不存在，自动触发同步（约15-20秒）<br>
+                    • 只提取最近3-5个订单，快速验证<br>
+                    • 无需定时任务，按需实时同步
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">💾 保存配置</button>
+                    <button type="button" onclick="triggerXHSSync()" class="btn btn-secondary">🔄 手动同步（测试）</button>
+                    <button type="button" onclick="viewXHSOrders()" class="btn btn-primary">📋 查看订单</button>
+                </div>
             </form>
         </div>
 
@@ -485,25 +534,48 @@
         let allKeys = []; // 存储所有邀请码
 
         let teamsLoaded = false; // 标记Teams是否已加载
+        let keysLoaded = false; // 标记Keys是否已加载
 
         // 页面加载时初始化
-        window.onload = function() {
-            // 不自动加载Teams，等用户点击"查看Teams"按钮
-            loadKeys();
+        window.onload = function () {
+            // 不自动加载Teams和Keys，等用户点击按钮
             loadAutoKickConfig();
             loadKickLogs();
             loadInvitations();
+            loadXHSStatus(); // 加载小红书状态
 
             // 监听临时邀请复选框 (成员管理弹窗中的)
-            document.getElementById('invite_is_temp').addEventListener('change', function() {
+            document.getElementById('invite_is_temp').addEventListener('change', function () {
                 document.getElementById('temp_hours_group').style.display = this.checked ? 'block' : 'none';
             });
 
             // 监听临时邀请复选框 (管理员邀请表单中的)
-            document.getElementById('admin_invite_is_temp').addEventListener('change', function() {
+            document.getElementById('admin_invite_is_temp').addEventListener('change', function () {
                 document.getElementById('admin_temp_hours_group').style.display = this.checked ? 'block' : 'none';
             });
         };
+
+        // 折叠/展开邀请码列表
+        function toggleKeysList() {
+            const keysList = document.getElementById('keysList');
+            const toggleBtn = document.getElementById('toggleKeysBtn');
+
+            if (keysList.style.display === 'none') {
+                // 展开
+                keysList.style.display = 'block';
+                toggleBtn.textContent = '👁️‍🗨️ 隐藏邀请码';
+
+                // 首次展开时加载数据
+                if (!keysLoaded) {
+                    loadKeys();
+                    keysLoaded = true;
+                }
+            } else {
+                // 收起
+                keysList.style.display = 'none';
+                toggleBtn.textContent = '👁️ 查看邀请码';
+            }
+        }
 
         // 折叠/展开Teams列表
         function toggleTeamsList() {
@@ -584,11 +656,19 @@
 
             keys.forEach(key => {
                 const assignedInfo = key.team_name ? `分配给: ${key.team_name}` : '尚未分配 Team';
+
+                // 隐藏邀请码中间部分，显示前6位和后4位
+                const keyCode = key.key_code;
+                const hiddenKey = keyCode.length > 12
+                    ? `${keyCode.substring(0, 6)}****${keyCode.substring(keyCode.length - 4)}`
+                    : keyCode;
+
                 html += `
                     <div class="key-item">
                         <div class="key-info">
                             <div>
-                                <code class="key-code">${key.key_code}</code>
+                                <code class="key-code" id="key_${key.id}" data-full="${keyCode}">${hiddenKey}</code>
+                                <button onclick="toggleKeyVisibility(${key.id})" class="btn btn-secondary btn-sm" style="margin-left: 8px; padding: 4px 8px;">👁️</button>
                                 <div style="margin-top: 8px;">
                                     ${key.is_temp ? '<span class="badge badge-temp">1日试用</span>' : '<span class="badge">永久</span>'}
                                     <span class="badge">使用 ${key.usage_count} 次</span>
@@ -600,7 +680,7 @@
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button onclick="copyKey('${key.key_code}')" class="btn btn-secondary btn-sm">📋 复制</button>
+                            <button onclick="copyKey('${keyCode}')" class="btn btn-secondary btn-sm">📋 复制</button>
                             <button onclick="deleteKey(${key.id})" class="btn btn-danger btn-sm">🗑️ 删除</button>
                         </div>
                     </div>
@@ -609,6 +689,24 @@
 
             html += '</div>';
             container.innerHTML = html;
+        }
+
+        // 切换邀请码显示/隐藏
+        function toggleKeyVisibility(keyId) {
+            const element = document.getElementById(`key_${keyId}`);
+            const fullKey = element.getAttribute('data-full');
+            const currentText = element.textContent;
+
+            if (currentText.includes('****')) {
+                // 当前是隐藏状态，显示完整
+                element.textContent = fullKey;
+            } else {
+                // 当前是显示状态，隐藏中间部分
+                const hiddenKey = fullKey.length > 12
+                    ? `${fullKey.substring(0, 6)}****${fullKey.substring(fullKey.length - 4)}`
+                    : fullKey;
+                element.textContent = hiddenKey;
+            }
         }
 
         // 生成邀请码
@@ -644,6 +742,15 @@
                         alert(`成功生成 ${count} 个邀请码！`);
                     }
                     document.getElementById('createKeyForm').reset();
+
+                    // 确保列表展开并刷新
+                    const keysList = document.getElementById('keysList');
+                    const toggleBtn = document.getElementById('toggleKeysBtn');
+                    if (keysList.style.display === 'none') {
+                        keysList.style.display = 'block';
+                        toggleBtn.textContent = '👁️‍🗨️ 隐藏邀请码';
+                    }
+                    keysLoaded = true;
                     loadKeys();
                 } else {
                     alert('错误: ' + data.error);
@@ -911,7 +1018,7 @@
                 } else if (team.token_error_count > 0) {
                     tokenStatusBadge = `<span class="badge" style="margin-left: 8px; background: #ff9800;">⚠️ 错误${team.token_error_count}/5</span>`;
                 }
-                
+
                 html += `
                     <div class="team-card">
                         <div class="team-header">
@@ -998,7 +1105,7 @@
 
         // 邀请成员
         let isInviting = false; // 防止重复提交
-        
+
         async function inviteMember(e) {
             e.preventDefault();
 
@@ -1273,9 +1380,9 @@
                         <td>${invStatus === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-error">失败</span>'}</td>
                         <td>
                             ${isTemp && !isConfirmed && invStatus === 'success' ?
-                                `<button onclick="confirmInvitation(${inv.id})" class="btn btn-primary btn-sm">✅ 取消自动踢出</button>` :
-                                (isTemp && isConfirmed ? '<span style="color: #28a745;">✓ 已取消踢出</span>' : '-')
-                            }
+                        `<button onclick="confirmInvitation(${inv.id})" class="btn btn-primary btn-sm">✅ 取消自动踢出</button>` :
+                        (isTemp && isConfirmed ? '<span style="color: #28a745;">✓ 已取消踢出</span>' : '-')
+                    }
                         </td>
                     </tr>
                 `;
@@ -1283,6 +1390,206 @@
 
             html += '</tbody></table>';
             container.innerHTML = html;
+        }
+
+        // ===================小红书订单同步管理 ====================
+
+        // 加载小红书配置和状态
+        async function loadXHSStatus() {
+            try {
+                const [configRes, statusRes] = await Promise.all([
+                    fetch('/api/admin/xhs/config'),
+                    fetch('/api/admin/xhs/status')
+                ]);
+
+                const configData = await configRes.json();
+                const statusData = await statusRes.json();
+
+                // 填充配置表单
+                if (configData.success && configData.config) {
+                    const config = configData.config;
+                    // 不显示完整Cookie，只显示是否已配置
+                    if (config.cookies_configured) {
+                        document.getElementById('xhs_cookies').placeholder = '已配置 Cookie (留空不修改)';
+                    }
+                }
+
+                // 显示状态信息
+                if (statusData.success) {
+                    displayXHSStatus(statusData);
+                }
+            } catch (error) {
+                console.error('加载小红书状态失败:', error);
+                document.getElementById('xhsStatus').innerHTML = `
+                    <div style="color: #dc3545;">❌ 加载失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 显示小红书同步状态
+        function displayXHSStatus(data) {
+            const status = data.status || {};
+            const stats = data.stats || {};
+
+            let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
+
+            // Cookie 配置状态
+            const hasCookies = status.cookies_configured || false;
+            const lastSync = status.last_sync_at;
+            const lastError = status.last_error;
+
+            html += `
+                <div>
+                    <strong>� Cookie 状态:</strong>
+                    <div>${hasCookies ? '<span class="badge badge-success">已配置</span>' : '<span class="badge badge-error">未配置</span>'}</div>
+                    <small style="color: #666; margin-top: 5px; display: block;">按需同步模式</small>
+                </div>
+                <div>
+                    <strong>⏰ 最后同步:</strong>
+                    <div>${lastSync ? new Date(lastSync).toLocaleString('zh-CN') : '从未同步'}</div>
+                </div>
+                <div>
+                    <strong>📦 订单统计:</strong>
+                    <div>总计: ${stats.total || 0} 个</div>
+                    <div>未使用: <strong>${stats.unused || 0}</strong> 个</div>
+                    <div>已使用: ${stats.used || 0} 个</div>
+                </div>
+                <div>
+                    <strong>📅 今日新增:</strong>
+                    <div><strong>${stats.today || 0}</strong> 个订单</div>
+                </div>
+            `;
+
+            if (lastError) {
+                html += `
+                    <div style="grid-column: 1 / -1;">
+                        <strong style="color: #dc3545;">❌ 最后错误:</strong>
+                        <div style="color: #dc3545; font-size: 12px; margin-top: 5px;">${lastError}</div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            document.getElementById('xhsStatus').innerHTML = html;
+        }
+
+        // 保存小红书配置
+        async function saveXHSConfig(e) {
+            e.preventDefault();
+
+            const cookies = document.getElementById('xhs_cookies').value.trim();
+
+            if (!cookies) {
+                alert('⚠️ 请输入 Cookie');
+                return;
+            }
+
+            try {
+                // 验证JSON格式
+                try {
+                    JSON.parse(cookies);
+                } catch (e) {
+                    alert('❌ Cookie 格式错误，必须是有效的 JSON！\n\n示例格式：\n{\n  "cookie1": "value1",\n  "cookie2": "value2"\n}');
+                    return;
+                }
+
+                const response = await fetch('/api/admin/xhs/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cookies: cookies })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ Cookie 保存成功！\n\n用户输入订单号时会自动触发同步验证。');
+                    // 清空Cookie输入框
+                    document.getElementById('xhs_cookies').value = '';
+                    document.getElementById('xhs_cookies').placeholder = '已配置 Cookie (留空不修改)';
+                    // 重新加载状态
+                    loadXHSStatus();
+                } else {
+                    alert('❌ 错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 请求失败: ' + error.message);
+            }
+        }
+
+        // 手动触发同步
+        async function triggerXHSSync() {
+            if (!confirm('确定要立即同步小红书订单吗？\n\n这将启动浏览器访问订单页面，可能需要1-2分钟时间。')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/xhs/sync', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('✅ 同步任务已启动！\n\n请等待1-2分钟后刷新页面查看结果。');
+                    // 5秒后重新加载状态
+                    setTimeout(loadXHSStatus, 5000);
+                } else {
+                    alert('❌ 错误: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 请求失败: ' + error.message);
+            }
+        }
+
+        // 查看订单列表
+        async function viewXHSOrders() {
+            try {
+                const response = await fetch('/api/admin/xhs/orders?limit=100');
+                const data = await response.json();
+
+                if (data.success) {
+                    displayXHSOrders(data.orders, data.stats);
+                } else {
+                    alert('❌ 获取订单失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ 请求失败: ' + error.message);
+            }
+        }
+
+        // 显示订单列表
+        function displayXHSOrders(orders, stats) {
+            let html = `
+                <h3>📋 订单列表</h3>
+                <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
+                    总计: ${stats.total} 个 | 未使用: <strong>${stats.unused}</strong> 个 | 已使用: ${stats.used} 个 | 今日: ${stats.today} 个
+                </div>
+            `;
+
+            if (!orders || orders.length === 0) {
+                html += '<p>暂无订单</p>';
+            } else {
+                html += '<table class="log-table"><thead><tr><th>订单号</th><th>状态</th><th>使用者</th><th>提取时间</th><th>使用时间</th></tr></thead><tbody>';
+
+                orders.forEach(order => {
+                    const used = order.is_used;
+                    html += `
+                        <tr>
+                            <td><code>${order.order_number}</code></td>
+                            <td>${used ? '<span class="badge badge-error">已使用</span>' : '<span class="badge badge-success">未使用</span>'}</td>
+                            <td>${order.user_email || '-'}</td>
+                            <td>${order.extracted_at ? new Date(order.extracted_at).toLocaleString('zh-CN') : '-'}</td>
+                            <td>${order.used_at ? new Date(order.used_at).toLocaleString('zh-CN') : '-'}</td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+            }
+
+            // 显示在弹窗中
+            alert(html.replace(/<[^>]*>/g, '\n').replace(/\n+/g, '\n')); // 简化版
+            // TODO: 可以创建专门的订单列表弹窗，样式更美观
         }
 
         // 确认邀请
@@ -1308,12 +1615,12 @@
         }
 
         // 点击弹窗外部关闭
-        window.onclick = function(event) {
+        window.onclick = function (event) {
             if (event.target.className === 'modal') {
                 event.target.style.display = 'none';
             }
         }
     </script>
 </body>
-</html>
 
+</html>
