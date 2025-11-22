@@ -145,24 +145,19 @@ class XHSOrderSyncService:
                 else:
                     continue
                 
-                # 从 <a> 标签向上找包含完整订单信息的父元素
-                # 策略：找到文本长度 > 100 字符的父容器（状态信息应该在里面）
+                # 从 <a> 标签向上找包含完整订单信息的父元素（通常是 TBODY 或类似容器）
                 parent_container = None
                 current = link
-                for level in range(15):  # 最多向上找15层
+                for _ in range(10):  # 最多向上找10层
                     try:
                         current = current.find_element(By.XPATH, "..")
-                        # 读取当前容器的文本
-                        try:
-                            text = current.text
-                            # 找到文本足够长的容器（包含订单详细信息）
-                            if text and len(text) > 100:
-                                parent_container = current
-                                break
-                        except:
-                            pass
+                        tag_name = current.tag_name.upper()
+                        # 找到 TBODY 或包含订单信息的 DIV/TR
+                        if tag_name in ['TBODY', 'TR'] or 'order' in current.get_attribute('class').lower():
+                            parent_container = current
+                            break
                     except:
-                        break  # 到顶了
+                        break  # 到顶了或出错
                 
                 status = '未知'
                 container_text_snippet = ""  # 用于调试
