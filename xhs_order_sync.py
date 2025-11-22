@@ -145,69 +145,86 @@ class XHSOrderSyncService:
                 else:
                     continue
                 
-                # 从 <a> 标签向上找包含订单信息的父元素
+                # 从 <a> 标签向上找包含完整订单信息的父元素
+                # 策略：找到文本长度 > 100 字符的父容器（状态信息应该在里面）
                 parent_container = None
                 current = link
-                for level in range(8):  # 减少层数提升性能
+                for level in range(15):  # 最多向上找15层
                     try:
                         current = current.find_element(By.XPATH, "..")
+                        # 读取当前容器的文本
                         try:
                             text = current.text
-                            if text and len(text) > 50:  # 降低阈值
+                            # 找到文本足够长的容器（包含订单详细信息）
+                            if text and len(text) > 100:
                                 parent_container = current
                                 break
                         except:
                             pass
                     except:
-                        break
+                        break  # 到顶了
                 
-                # 简化逻辑：只检测是否有"修改价格"按钮
-                # 有按钮 = 待付款 = 跳过
-                # 无按钮 = 已付款 = 同步
-                has_modify_price_button = False
-                debug_info = ""
-                
+                status = '未知'
+                container_text_snippet = ""  # 用于调试
                 if parent_container:
                     try:
-                        # 在父容器中查找"修改价格"按钮
-                        buttons = parent_container.find_elements(By.XPATH, ".//button | .//a | .//span")
-                        for btn in buttons:
-                            btn_text = btn.text.strip()
-                            if '修改价格' in btn_text or '修改订单' in btn_text:
-                                has_modify_price_button = True
-                                debug_info = f"found button: {btn_text}"
-                                break
-                        
-                        if not has_modify_price_button:
-                            debug_info = "no modify button, order is paid"
-                    except Exception as e:
-                        debug_info = f"error: {e}"
+                        container_text = parent_container.text
+                        container_text_snippet = container_text[:500] if container_text else "(empty)"  # 保存前500字符
+                        if '已发货未签收' in container_text:
+                            status = '已发货未签收'
+                        elif '已取消' in container_text:
+                            status = '已取消'
+                        elif '已完成' in container_text:
+                            status = '已完成'
+                        elif '待付款' in container_text or '未付款' in container_text:
+                            status = '待付款'
+                        elif '待发货' in container_text:
+                            status = '待发货'
+                        elif '已签收' in container_text:
+                            status = '已签收'
+                    except:
+                        container_text_snippet = "(error)"
+                        pass
                 else:
-                    debug_info = "no parent found"
-                
-                # 只同步没有"修改价格"按钮的订单（已付款）
-                if not has_modify_price_button:
-                    valid_orders.add(order_number)
-                    print(f"  ✓ 已付款订单: {order_number} ({debug_info})")
-                else:
-                    print(f"  ✗ 待付款订单(跳过): {order_number} ({debug_info})")
+                    container_text_snippet = "(no parent found)"
                 
                 orders_data.append({
                     'order': order_number,
-                    'has_modify_button': has_modify_price_button,
-                    'debug': debug_info
+                    'status': status,
+                    'container_text': container_text_snippet  # 调试用
                 })
 
-
+            # 过滤并打印日志
+            for item in orders_data:
+                order_num = item['order']
+                status = item['status']
+                
+                if status == '已发货未签收':
+                    valid_orders.add(order_num)
+                    print(f"  ✓ 找到符合条件的订单: {order_num} (已发货未签收)")
+                elif status == '已取消':
+                    print(f"  ✗ 过滤订单: {order_num} (已取消)")
+                elif status == '已完成':
+                    print(f"  ✗ 过滤订单: {order_num} (已完成)")
+                elif status in ['待付款', '未付款']:
+                    print(f"  ✗ 过滤订单: {order_num} (待付款)")
+                elif status == '待发货':
+                    print(f"  ✗ 过滤订单: {order_num} (待发货)")
+                elif status == '已签收':
+                    print(f"  ✗ 过滤订单: {order_num} (已签收)")
+                else:
+                    print(f"  ? 跳过订单: {order_num} (状态未识别: {status})")
+            
             result = list(valid_orders)
             
-            # 调试：保存数据
             if not result:
-                print(f"  ⚠️ 未找到已付款订单")
+                print(f"  ⚠️ 未找到【已发货未签收】的订单")
                 print(f"  ℹ️  总共提取到 {len(orders_data)} 个订单")
-            
-            with open("debug_orders.json", "w", encoding="utf-8") as f:
-                json.dump(orders_data, f, ensure_ascii=False, indent=2)
+                with open("debug_page_source.html", "w", encoding="utf-8") as f:
+                    f.write(self.driver.page_source)
+                with open("debug_orders.json", "w", encoding="utf-8") as f:
+                    json.dump(orders_data, f, ensure_ascii=False, indent=2)
+                print(f"  ℹ️  已保存 debug_page_source.html 和 debug_orders.json")
             
             return result
             
