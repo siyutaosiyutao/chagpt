@@ -1374,8 +1374,6 @@ def update_xhs_config():
     try:
         data = request.json
         cookies = data.get('cookies')
-        sync_enabled = data.get('sync_enabled')
-        sync_interval_hours = data.get('sync_interval_hours')
         
         # 验证Cookie格式（如果提供）
         if cookies:
@@ -1384,18 +1382,12 @@ def update_xhs_config():
             except json.JSONDecodeError:
                 return jsonify({"success": False, "error": "Cookie格式错误，必须是有效的JSON"}), 400
         
-        # 更新配置
+        # 更新配置（只更新Cookie，忽略同步设置）
         XHSConfig.update(
             cookies=cookies,
-            sync_enabled=sync_enabled,
-            sync_interval_hours=sync_interval_hours
+            sync_enabled=True, # 默认启用
+            sync_interval_hours=6 # 默认值
         )
-        
-        # 如果启用了同步，重新加载调度器
-        if sync_enabled:
-            xhs_scheduler.reload_config()
-        else:
-            xhs_scheduler.stop()
         
         return jsonify({"success": True, "message": "配置已更新"})
     except Exception as e:
@@ -1407,9 +1399,36 @@ def update_xhs_config():
 def trigger_xhs_sync():
     """手动触发订单同步"""
     try:
-        result = xhs_scheduler.trigger_now()
-        return jsonify(result)
+        # 使用非阻塞锁防止并发
+        if not sync_lock.acquire(blocking=False):
+            return jsonify({"success": False, "error": "同步任务已在运行中，请稍后再试"}), 409
+
+        def run_sync():
+            try:
+                from xhs_order_sync import XHSOrderSyncService
+                
+                config = XHSConfig.get()
+                if not config or not config.get('cookies'):
+                    return
+                
+                cookies = json.loads(config['cookies'])
+                service = XHSOrderSyncService(headless=True)
+                # 手动同步提取最近50个订单
+                service.sync_with_cookies(cookies, max_scrolls=10)
+            except Exception as e:
+                print(f"手动同步失败: {e}")
+            finally:
+                sync_lock.release()
+
+        # 在后台线程运行
+        import threading
+        thread = threading.Thread(target=run_sync)
+        thread.start()
+        
+        return jsonify({"success": True, "message": "同步任务已启动"})
     except Exception as e:
+        if sync_lock.locked():
+            sync_lock.release()
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -1418,8 +1437,15 @@ def trigger_xhs_sync():
 def get_xhs_status():
     """获取同步状态"""
     try:
-        status = xhs_scheduler.get_status()
+        config = XHSConfig.get() or {}
         stats = Order.get_stats()
+        
+        status = {
+            "cookies_configured": bool(config.get('cookies')),
+            "last_sync_at": config.get('last_sync_at'),
+            "last_error": config.get('last_error'),
+            "is_running": sync_lock.locked() # 检查锁状态
+        }
         
         return jsonify({
             "success": True,
