@@ -145,69 +145,60 @@ class XHSOrderSyncService:
                 else:
                     continue
                 
-                # 精准定位策略：
-                # 1. 向上找父容器，但要确保这个容器只包含当前订单
-                # 2. 检查是否有"发货信息"按钮
-                
-                has_shipping_info_button = False
-                debug_info = ""
-                button_texts = []
-                
-                # 向上找父容器，找到包含当前订单号的最小合适容器
+                # 从 <a> 标签向上找包含订单信息的父元素
+                parent_container = None
                 current = link
-                for level in range(12):
+                for level in range(10):  # 查找10层
                     try:
                         current = current.find_element(By.XPATH, "..")
-                        
-                        # 获取当前容器内的所有文本
-                        container_text = current.text
-                        
-                        # 确保容器不为空且包含当前订单号
-                        if not container_text or order_number not in container_text:
-                            continue
-                        
-                        # 检查容器是否包含其他订单号（避免容器太大）
-                        # 如果找到其他P开头的订单号，说明容器太大了
-                        other_orders = re.findall(r'P\d{15,}', container_text)
-                        if len(other_orders) > 1:
-                            # 容器包含多个订单，继续向上找更小的
-                            continue
-                        
-                        # 找到了只包含当前订单的容器，检查是否有"发货信息"按钮
                         try:
-                            buttons = current.find_elements(By.XPATH, ".//button | .//a | .//span")
-                            for btn in buttons:
-                                btn_text = btn.text.strip()
-                                if btn_text:
-                                    button_texts.append(btn_text)
-                                if '发货信息' in btn_text:
-                                    has_shipping_info_button = True
-                                    debug_info = f"found: {btn_text} (level {level})"
-                                    break
-                            
-                            # 如果找到了发货信息按钮，或者容器足够大，就停止搜索
-                            if has_shipping_info_button or len(container_text) > 200:
+                            text = current.text
+                            # 父容器要足够大才能包含"修改价格"按钮
+                            if text and len(text) > 150:
+                                parent_container = current
                                 break
                         except:
                             pass
-                            
                     except:
                         break
                 
-                if not has_shipping_info_button and not debug_info:
-                    debug_info = f"no shipping button (checked {len(button_texts)} buttons)"
+                # 简化逻辑：只检测是否有"修改价格"按钮
+                # 有按钮 = 待付款 = 跳过
+                # 无按钮 = 已付款 = 同步
+                has_modify_price_button = False
+                debug_info = ""
+                button_texts = []
                 
-                # 只同步有"发货信息"按钮的订单
-                if has_shipping_info_button:
-                    valid_orders.add(order_number)
-                    print(f"  ✓ 已发货订单: {order_number} ({debug_info})")
+                if parent_container:
+                    try:
+                        # 在父容器中查找"修改价格"按钮
+                        buttons = parent_container.find_elements(By.XPATH, ".//button | .//a | .//span")
+                        for btn in buttons:
+                            btn_text = btn.text.strip()
+                            if btn_text:  # 只记录非空按钮
+                                button_texts.append(btn_text)
+                            if '修改价格' in btn_text or '修改订单' in btn_text:
+                                has_modify_price_button = True
+                                debug_info = f"found: {btn_text}"
+                        
+                        if not has_modify_price_button:
+                            debug_info = f"no modify button (found {len(button_texts)} buttons)"
+                    except Exception as e:
+                        debug_info = f"error: {e}"
                 else:
-                    print(f"  ✗ 未发货订单(跳过): {order_number} ({debug_info})")
+                    debug_info = "no parent found"
+                
+                # 只同步没有"修改价格"按钮的订单（已付款）
+                if not has_modify_price_button:
+                    valid_orders.add(order_number)
+                    print(f"  ✓ 已付款订单: {order_number} ({debug_info})")
+                else:
+                    print(f"  ✗ 待付款订单(跳过): {order_number} ({debug_info})")
                 
                 orders_data.append({
                     'order': order_number,
-                    'has_shipping_button': has_shipping_info_button,
-                    'button_texts': button_texts[:10],
+                    'has_modify_button': has_modify_price_button,
+                    'button_texts': button_texts[:10],  # 只保存前10个按钮
                     'debug': debug_info
                 })
 
