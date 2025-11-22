@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 import pytz
 from config import *
 from auto_kick_service import auto_kick_service
-# from xhs_scheduler import xhs_scheduler # 已移除定时任务
 import threading
 
 # 全局同步锁，防止并发同步导致资源耗尽
@@ -131,7 +130,6 @@ def join_team():
                             raise ValueError("Cookie 为空")
                     except (json.JSONDecodeError, ValueError) as e:
                         print(f"❌ Cookie 解析失败: {e}")
-                        # sync_lock.release() # ❌ 移除：finally 块会处理释放
                         # 继续后续流程（返回无效密钥）
                         return jsonify({"success": False, "error": "无效的访问密钥"}), 400
 
