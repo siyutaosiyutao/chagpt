@@ -148,13 +148,12 @@ class XHSOrderSyncService:
                 # 从 <a> 标签向上找包含订单信息的父元素
                 parent_container = None
                 current = link
-                for level in range(10):  # 查找10层
+                for level in range(8):  # 减少层数提升性能
                     try:
                         current = current.find_element(By.XPATH, "..")
                         try:
                             text = current.text
-                            # 父容器要足够大才能包含"修改价格"按钮
-                            if text and len(text) > 150:
+                            if text and len(text) > 50:  # 降低阈值
                                 parent_container = current
                                 break
                         except:
@@ -167,7 +166,6 @@ class XHSOrderSyncService:
                 # 无按钮 = 已付款 = 同步
                 has_modify_price_button = False
                 debug_info = ""
-                button_texts = []
                 
                 if parent_container:
                     try:
@@ -175,14 +173,13 @@ class XHSOrderSyncService:
                         buttons = parent_container.find_elements(By.XPATH, ".//button | .//a | .//span")
                         for btn in buttons:
                             btn_text = btn.text.strip()
-                            if btn_text:  # 只记录非空按钮
-                                button_texts.append(btn_text)
                             if '修改价格' in btn_text or '修改订单' in btn_text:
                                 has_modify_price_button = True
-                                debug_info = f"found: {btn_text}"
+                                debug_info = f"found button: {btn_text}"
+                                break
                         
                         if not has_modify_price_button:
-                            debug_info = f"no modify button (found {len(button_texts)} buttons)"
+                            debug_info = "no modify button, order is paid"
                     except Exception as e:
                         debug_info = f"error: {e}"
                 else:
@@ -198,7 +195,6 @@ class XHSOrderSyncService:
                 orders_data.append({
                     'order': order_number,
                     'has_modify_button': has_modify_price_button,
-                    'button_texts': button_texts[:10],  # 只保存前10个按钮
                     'debug': debug_info
                 })
 
