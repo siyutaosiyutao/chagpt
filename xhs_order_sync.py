@@ -132,47 +132,74 @@ class XHSOrderSyncService:
         valid_orders = set()
         
         try:
-            page_source = self.driver.page_source
-            
-            # 策略：在页面源码中查找 "订单号：P数字" 后紧跟的状态文本
-            # 只保留状态为 "已发货未签收" 的订单
-            
-            # 使用正则分割出每个订单块（以 "订单号：" 为分隔符）
-            order_blocks = re.split(r'订单号[：:]', page_source)
-            
-            for block in order_blocks[1:]:  # 跳过第一个空块
-                # 提取订单号
-                order_match = re.search(r'(P\d{15,})', block[:200])  # 只在前200字符查找订单号
-                if not order_match:
-                    continue
+            # 使用 JavaScript 从渲染后的 DOM 中提取订单和状态
+            # 因为 page_source 可能没有经过 JS 渲染，状态文本可能不存在
+            result_json = self.driver.execute_script("""
+                const pageSource = document.documentElement.outerHTML;
+                const blocks = pageSource.split(/订单号[：:]/);
+                const results = [];
+                
+                for (let i = 1; i < blocks.length; i++) {
+                    const block = blocks[i];
+                    const orderMatch = block.match(/P\\d{15,}/);
+                    if (!orderMatch) continue;
                     
-                order_number = order_match.group(1)
+                    const orderNum = orderMatch[0];
+                    const context = block.substring(0, 1000);
+                    
+                    let status = '未知';
+                    if (context.includes('已发货未签收')) status = '已发货未签收';
+                    else if (context.includes('已取消')) status = '已取消';
+                    else if (context.includes('已完成')) status = '已完成';
+                    else if (context.includes('待付款') || context.includes('未付款')) status = '待付款';
+                    else if (context.includes('待发货')) status = '待发货';
+                    else if (context.includes('已签收')) status = '已签收';
+                    
+                    results.push({
+                        order: orderNum,
+                        status: status
+                    });
+                }
                 
-                # 提取状态（在订单号后的500字符内查找）
-                status_section = block[:500]
+                return JSON.stringify(results);
+            """)
+            
+            orders_data = json.loads(result_json)
+            
+            # 过滤并打印日志
+            for item in orders_data:
+                order_num = item['order']
+                status = item['status']
                 
-                # 检查是否包含 "已发货未签收"
-                if '已发货未签收' in status_section:
-                    valid_orders.add(order_number)
-                    print(f"  ✓ 找到符合条件的订单: {order_number} (已发货未签收)")
+                if status == '已发货未签收':
+                    valid_orders.add(order_num)
+                    print(f"  ✓ 找到符合条件的订单: {order_num} (已发货未签收)")
+                elif status == '已取消':
+                    print(f\"  ✗ 过滤订单: {order_num} (已取消)")
+                elif status == '已完成':
+                    print(f"  ✗ 过滤订单: {order_num} (已完成)")
+                elif status in ['待付款', '未付款']:
+                    print(f"  ✗ 过滤订单: {order_num} (待付款)")
+                elif status == '待发货':
+                    print(f"  ✗ 过滤订单: {order_num} (待发货)")
+                elif status == '已签收':
+                    print(f"  ✗ 过滤订单: {order_num} (已签收)")
                 else:
-                    # 调试：打印被过滤的订单及其状态
-                    if '已取消' in status_section:
-                        print(f"  ✗ 过滤订单: {order_number} (已取消)")
-                    elif '已完成' in status_section:
-                        print(f"  ✗ 过滤订单: {order_number} (已完成)")
-                    elif '待付款' in status_section or '未付款' in status_section:
-                        print(f"  ✗ 过滤订单: {order_number} (待付款)")
-                    else:
-                        print(f"  ? 跳过订单: {order_number} (状态未识别)")
+                    print(f"  ? 跳过订单: {order_num} (状态未识别: {status})")
             
             result = list(valid_orders)
             
-            # 调试: 如果没找到符合条件的订单，保存页面源码以便分析
+            # 调试: 如果没找到符合条件的订单，保存完整数据
             if not result:
-                print("  ⚠️ 未找到【已发货未签收】的订单，保存页面源码到 debug_page_source.html")
+                print(f"  ⚠️ 未找到【已发货未签收】的订单")
+                print(f"  ℹ️  总共提取到 {len(orders_data)} 个订单")
+                # 保存 page_source 供调试
                 with open("debug_page_source.html", "w", encoding="utf-8") as f:
-                    f.write(page_source)
+                    f.write(self.driver.page_source)
+                # 保存提取到的订单数据
+                with open("debug_orders.json", "w", encoding="utf-8") as f:
+                    json.dump(orders_data, f, ensure_ascii=False, indent=2)
+                print(f"  ℹ️  已保存 debug_page_source.html 和 debug_orders.json")
             
             return result
             
