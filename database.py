@@ -28,6 +28,8 @@ def get_db():
     """数据库连接上下文管理器"""
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
+    # 开启外键约束支持
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
@@ -939,21 +941,43 @@ class Order:
         with get_db() as conn:
             cursor = conn.cursor()
             
-            # 创建访问密钥（使用订单号作为密钥）
-            cursor.execute('''
-                INSERT INTO access_keys (key_code, is_temp, temp_hours)
-                VALUES (?, 0, 0)
-            ''', (order_number,))
-            key_id = cursor.lastrowid
-            
-            # 创建订单记录
-            cursor.execute('''
-                INSERT INTO orders (order_number, key_id)
-                VALUES (?, ?)
-            ''', (order_number, key_id))
-            order_id = cursor.lastrowid
-            
-            return {'id': order_id, 'key_id': key_id, 'key_code': order_number}
+            try:
+                # 开启事务（SQLite默认在with语句中自动开启，但显式处理更安全）
+                # 1. 先检查订单是否存在（防止重复）
+                cursor.execute('SELECT id FROM orders WHERE order_number = ?', (order_number,))
+                if cursor.fetchone():
+                    return None
+
+                # 2. 检查 AccessKey 是否存在（防止冲突）
+                cursor.execute('SELECT id FROM access_keys WHERE key_code = ?', (order_number,))
+                existing_key = cursor.fetchone()
+                
+                if existing_key:
+                    # 如果 Key 已存在但 Order 不存在，直接关联
+                    key_id = existing_key[0]
+                else:
+                    # 创建新的访问密钥
+                    cursor.execute('''
+                        INSERT INTO access_keys (key_code, is_temp, temp_hours)
+                        VALUES (?, 0, 0)
+                    ''', (order_number,))
+                    key_id = cursor.lastrowid
+                
+                # 3. 创建订单记录
+                cursor.execute('''
+                    INSERT INTO orders (order_number, key_id)
+                    VALUES (?, ?)
+                ''', (order_number, key_id))
+                order_id = cursor.lastrowid
+                
+                return {'id': order_id, 'key_id': key_id, 'key_code': order_number}
+                
+            except sqlite3.IntegrityError:
+                # 发生冲突时回滚（with get_db() 会自动回滚）
+                return None
+            except Exception as e:
+                print(f"创建订单失败: {e}")
+                raise e
     
     @staticmethod
     def get_by_number(order_number):

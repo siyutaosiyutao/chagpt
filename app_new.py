@@ -11,6 +11,10 @@ import pytz
 from config import *
 from auto_kick_service import auto_kick_service
 from xhs_scheduler import xhs_scheduler
+import threading
+
+# 全局同步锁，防止并发同步导致资源耗尽
+sync_lock = threading.Lock()
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -110,33 +114,52 @@ def join_team():
         # 检查是否配置了小红书 Cookie
         xhs_config = XHSConfig.get()
         if xhs_config and xhs_config.get('cookies'):
-            try:
-                # 触发一次快速同步（只提取最近3-5个订单）
-                from xhs_order_sync import XHSOrderSyncService
-                import json
-                
-                print("🔄 触发按需同步（只提取最近3-5个订单）...")
-                service = XHSOrderSyncService(headless=True)
-                cookies = json.loads(xhs_config['cookies'])
-                
-                # 极速同步：只滚动2次，提取最近3-5个订单（约15-20秒）
-                result = service.sync_with_cookies(cookies, max_scrolls=2)
-                
-                if result['success']:
-                    print(f"✅ 按需同步成功，新增 {result['new_orders']} 个订单")
-                    # 重新查询密钥
-                    key_info = AccessKey.get_by_code(key_code)
+            # 使用非阻塞锁，如果已有同步任务在运行，则跳过本次触发
+            # 避免多个用户同时触发导致服务器负载过高
+            if sync_lock.acquire(blocking=False):
+                try:
+                    # 触发一次快速同步（只提取最近3-5个订单）
+                    from xhs_order_sync import XHSOrderSyncService
+                    import json
                     
-                    if key_info:
-                        print(f"✅ 找到订单号 {key_code}，继续邀请流程")
-                else:
-                    print(f"❌ 按需同步失败: {result.get('error')}")
+                    print("🔄 触发按需同步（只提取最近3-5个订单）...")
+                    service = XHSOrderSyncService(headless=True)
                     
-            except Exception as e:
-                print(f"❌ 按需同步异常: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                # 同步失败不影响后续流程，继续返回密钥不存在错误
+                    try:
+                        cookies = json.loads(xhs_config['cookies'])
+                        if not cookies:
+                            raise ValueError("Cookie 为空")
+                    except (json.JSONDecodeError, ValueError) as e:
+                        print(f"❌ Cookie 解析失败: {e}")
+                        sync_lock.release()
+                        # 继续后续流程（返回无效密钥）
+                        return jsonify({"success": False, "error": "无效的访问密钥"}), 400
+
+                    # 极速同步：只滚动2次，提取最近3-5个订单（约15-20秒）
+                    result = service.sync_with_cookies(cookies, max_scrolls=2)
+                    
+                    if result['success']:
+                        print(f"✅ 按需同步成功，新增 {result['new_orders']} 个订单")
+                        # 重新查询密钥
+                        key_info = AccessKey.get_by_code(key_code)
+                        
+                        if key_info:
+                            print(f"✅ 找到订单号 {key_code}，继续邀请流程")
+                    else:
+                        print(f"❌ 按需同步失败: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ 按需同步异常: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    sync_lock.release()
+            else:
+                print("⚠️ 同步任务已在运行，跳过本次触发")
+                # 可以选择在这里等待一小会儿，或者直接返回
+                import time
+                time.sleep(2) # 简单等待一下，看是否能查到
+                key_info = AccessKey.get_by_code(key_code)
     
     if not key_info:
         return jsonify({"success": False, "error": "无效的访问密钥"}), 400
