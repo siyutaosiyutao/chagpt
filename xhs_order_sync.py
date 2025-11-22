@@ -169,21 +169,39 @@ class XHSOrderSyncService:
                 if parent_container:
                     try:
                         container_text = parent_container.text
-                        container_text_snippet = container_text[:500] if container_text else "(empty)"  # 保存前500字符
-                        if '已发货未签收' in container_text:
-                            status = '已发货未签收'
-                        elif '已取消' in container_text:
-                            status = '已取消'
-                        elif '已完成' in container_text:
-                            status = '已完成'
-                        elif '待付款' in container_text or '未付款' in container_text:
-                            status = '待付款'
-                        elif '待发货' in container_text:
-                            status = '待发货'
-                        elif '已签收' in container_text:
-                            status = '已签收'
-                    except:
-                        container_text_snippet = "(error)"
+                        
+                        # 关键：只在当前订单号到下一个"订单号："之间的文本中搜索状态
+                        # 避免容器包含多个订单导致误判
+                        order_index = container_text.find(order_number)
+                        if order_index != -1:
+                            # 找到下一个"订单号："的位置
+                            next_order_index = container_text.find("订单号：", order_index + len(order_number))
+                            if next_order_index == -1:
+                                # 没有下一个订单，取到末尾
+                                order_segment = container_text[order_index:]
+                            else:
+                                # 只取当前订单的部分
+                                order_segment = container_text[order_index:next_order_index]
+                            
+                            container_text_snippet = order_segment[:500] if order_segment else "(empty)"
+                            
+                            # 在当前订单的文本片段中搜索状态
+                            if '已发货未签收' in order_segment:
+                                status = '已发货未签收'
+                            elif '已取消' in order_segment:
+                                status = '已取消'
+                            elif '已完成' in order_segment:
+                                status = '已完成'
+                            elif '待付款' in order_segment or '未付款' in order_segment:
+                                status = '待付款'
+                            elif '待发货' in order_segment:
+                                status = '待发货'
+                            elif '已签收' in order_segment:
+                                status = '已签收'
+                        else:
+                            container_text_snippet = "(order not found in container)"
+                    except Exception as e:
+                        container_text_snippet = f"(error: {e})"
                         pass
                 else:
                     container_text_snippet = "(no parent found)"
