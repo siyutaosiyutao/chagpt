@@ -129,16 +129,46 @@ class XHSOrderSyncService:
     
     def extract_orders_from_page(self):
         """从当前页面提取订单号"""
+        orders = set()
         try:
+            # 方法1: 正则表达式提取 (原有方法)
             page_source = self.driver.page_source
-            
-            # 使用正则表达式提取订单号（格式：P后跟数字）
             pattern = r'订单号[：:]\s*(P\d+)'
             matches = re.findall(pattern, page_source)
+            orders.update(matches)
             
-            # 去重
-            unique_orders = list(set(matches))
-            return unique_orders
+            # 方法2: DOM 遍历提取 (更稳健)
+            # 查找包含"订单号"文本的元素
+            try:
+                elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), '订单号')]")
+                for el in elements:
+                    text = el.text.strip()
+                    # 尝试从当前元素文本提取
+                    match = re.search(r'P\d{15,}', text)
+                    if match:
+                        orders.add(match.group(0))
+                        continue
+                        
+                    # 尝试从父元素或兄弟元素提取
+                    try:
+                        parent_text = el.find_element(By.XPATH, "..").text
+                        match = re.search(r'P\d{15,}', parent_text)
+                        if match:
+                            orders.add(match.group(0))
+                    except:
+                        pass
+            except Exception as e:
+                print(f"  DOM提取失败: {e}")
+
+            result = list(orders)
+            
+            # 调试: 如果没找到订单，保存页面源码以便分析
+            if not result:
+                print("  ⚠️ 未找到订单，保存页面源码到 debug_page_source.html")
+                with open("debug_page_source.html", "w", encoding="utf-8") as f:
+                    f.write(page_source)
+                    
+            return result
             
         except Exception as e:
             print(f"✗ 提取订单时出错: {str(e)}")
