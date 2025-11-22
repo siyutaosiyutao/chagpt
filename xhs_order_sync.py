@@ -132,41 +132,54 @@ class XHSOrderSyncService:
         valid_orders = set()
         
         try:
-            # 使用 JavaScript 从渲染后的 DOM 中提取订单和状态
-            # 因为 page_source 可能没有经过 JS 渲染，状态文本可能不存在
-            result_json = self.driver.execute_script("""
-                const pageSource = document.documentElement.outerHTML;
-                const blocks = pageSource.split(/订单号[：:]/);
-                const results = [];
-                
-                for (let i = 1; i < blocks.length; i++) {
-                    const block = blocks[i];
-                    const orderMatch = block.match(/P\\d{15,}/);
-                    if (!orderMatch) continue;
-                    
-                    const orderNum = orderMatch[0];
-                    const context = block.substring(0, 1000);
-                    
-                    let status = '未知';
-                    if (context.includes('已发货未签收')) status = '已发货未签收';
-                    else if (context.includes('已取消')) status = '已取消';
-                    else if (context.includes('已完成')) status = '已完成';
-                    else if (context.includes('待付款') || context.includes('未付款')) status = '待付款';
-                    else if (context.includes('待发货')) status = '待发货';
-                    else if (context.includes('已签收')) status = '已签收';
-                    
-                    results.push({
-                        order: orderNum,
-                        status: status,
-                        context: context
-                    });
-                }
-                
-                return JSON.stringify(results);
-            """)
+            # 找到所有包含订单号的 <a> 标签
+            order_links = self.driver.find_elements(By.XPATH, "//a[contains(@href, '/app-order/order/detail/P')]")
             
-            orders_data = json.loads(result_json)
+            orders_data = []
             
+            for link in order_links:
+                order_number = ""
+                match = re.search(r'(P\d{15,})', link.get_attribute('href'))
+                if match:
+                    order_number = match.group(1)
+                else:
+                    continue
+                
+                # 从 <a> 标签向上找包含完整订单信息的父元素（通常是 TBODY 或类似容器）
+                parent_container = None
+                current = link
+                for _ in range(10):  # 最多向上找10层
+                    try:
+                        current = current.find_element(By.XPATH, "..")
+                        tag_name = current.tag_name.upper()
+                        # 找到 TBODY 或包含订单信息的 DIV/TR
+                        if tag_name in ['TBODY', 'TR'] or 'order' in current.get_attribute('class').lower():
+                            parent_container = current
+                            break
+                    except:
+                        break  # 到顶了或出错
+                
+                status = '未知'
+                if parent_container:
+                    try:
+                        container_text = parent_container.text
+                        if '已发货未签收' in container_text:
+                            status = '已发货未签收'
+                        elif '已取消' in container_text:
+                            status = '已取消'
+                        elif '已完成' in container_text:
+                            status = '已完成'
+                        elif '待付款' in container_text or '未付款' in container_text:
+                            status = '待付款'
+                        elif '待发货' in container_text:
+                            status = '待发货'
+                        elif '已签收' in container_text:
+                            status = '已签收'
+                    except:
+                        pass
+                
+                orders_data.append({'order': order_number, 'status': status})
+
             # 过滤并打印日志
             for item in orders_data:
                 order_num = item['order']
@@ -190,14 +203,11 @@ class XHSOrderSyncService:
             
             result = list(valid_orders)
             
-            # 调试: 如果没找到符合条件的订单，保存完整数据
             if not result:
                 print(f"  ⚠️ 未找到【已发货未签收】的订单")
                 print(f"  ℹ️  总共提取到 {len(orders_data)} 个订单")
-                # 保存 page_source 供调试
                 with open("debug_page_source.html", "w", encoding="utf-8") as f:
                     f.write(self.driver.page_source)
-                # 保存提取到的订单数据
                 with open("debug_orders.json", "w", encoding="utf-8") as f:
                     json.dump(orders_data, f, ensure_ascii=False, indent=2)
                 print(f"  ℹ️  已保存 debug_page_source.html 和 debug_orders.json")
