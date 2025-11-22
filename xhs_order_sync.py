@@ -135,27 +135,6 @@ class XHSOrderSyncService:
             # 找到所有包含订单号的 <a> 标签
             order_links = self.driver.find_elements(By.XPATH, "//a[contains(@href, '/app-order/order/detail/P')]")
             
-            # --- 调试：全局搜索"发货信息" ---
-            try:
-                print("  🔍 正在分析页面结构...")
-                # 搜索包含"发货"的元素，因为可能是"发货信息"、"无物流发货"等
-                shipping_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), '发货')]")
-                if shipping_elements:
-                    print(f"  Found {len(shipping_elements)} elements with text containing '发货'")
-                    for i, el in enumerate(shipping_elements[:5]):
-                        try:
-                            print(f"  Element {i}: Tag={el.tag_name}, Text='{el.text}', Class={el.get_attribute('class')}")
-                            # 尝试获取父元素信息
-                            parent = el.find_element(By.XPATH, "..")
-                            print(f"    Parent: Tag={parent.tag_name}, Class={parent.get_attribute('class')}")
-                        except:
-                            pass
-                else:
-                    print("  ⚠️ 页面上未找到任何包含 '发货' 文本的元素")
-            except Exception as e:
-                print(f"  Debug error: {e}")
-            # -----------------------------
-            
             orders_data = []
             
             for link in order_links:
