@@ -135,27 +135,6 @@ class XHSOrderSyncService:
             # 找到所有包含订单号的 <a> 标签
             order_links = self.driver.find_elements(By.XPATH, "//a[contains(@href, '/app-order/order/detail/P')]")
             
-            # --- 调试：全局搜索"发货信息" ---
-            try:
-                print("  🔍 正在分析页面结构...")
-                # 搜索包含"发货"的元素，因为可能是"发货信息"、"无物流发货"等
-                shipping_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), '发货')]")
-                if shipping_elements:
-                    print(f"  Found {len(shipping_elements)} elements with text containing '发货'")
-                    for i, el in enumerate(shipping_elements[:5]):
-                        try:
-                            print(f"  Element {i}: Tag={el.tag_name}, Text='{el.text}', Class={el.get_attribute('class')}")
-                            # 尝试获取父元素信息
-                            parent = el.find_element(By.XPATH, "..")
-                            print(f"    Parent: Tag={parent.tag_name}, Class={parent.get_attribute('class')}")
-                        except:
-                            pass
-                else:
-                    print("  ⚠️ 页面上未找到任何包含 '发货' 文本的元素")
-            except Exception as e:
-                print(f"  Debug error: {e}")
-            # -----------------------------
-            
             orders_data = []
             
             for link in order_links:
@@ -168,7 +147,7 @@ class XHSOrderSyncService:
                 
                 # 精准定位策略：
                 # 1. 向上找父容器，但要确保这个容器只包含当前订单
-                # 2. 检查是否有"发货信息"按钮
+                # 2. 检查是否有"发货信息"、"无物流发货"、"查看物流"等关键词
                 
                 has_shipping_info_button = False
                 debug_info = ""
@@ -188,25 +167,27 @@ class XHSOrderSyncService:
                             continue
                         
                         # 检查容器是否包含其他订单号（避免容器太大）
-                        # 如果找到其他P开头的订单号，说明容器太大了
                         other_orders = re.findall(r'P\d{15,}', container_text)
                         if len(other_orders) > 1:
-                            # 容器包含多个订单，继续向上找更小的
                             continue
                         
-                        # 找到了只包含当前订单的容器，检查是否有"发货信息"按钮
+                        # 找到了只包含当前订单的容器，检查关键词
                         try:
-                            buttons = current.find_elements(By.XPATH, ".//button | .//a | .//span")
+                            # 查找所有可能的交互元素和文本容器
+                            buttons = current.find_elements(By.XPATH, ".//button | .//a | .//span | .//div")
                             for btn in buttons:
                                 btn_text = btn.text.strip()
                                 if btn_text:
-                                    button_texts.append(btn_text)
-                                if '发货信息' in btn_text:
+                                    # 避免重复添加相同的文本
+                                    if btn_text not in button_texts:
+                                        button_texts.append(btn_text)
+                                
+                                # 关键词匹配
+                                if any(kw in btn_text for kw in ['发货信息', '无物流发货', '查看物流', '确认收货']):
                                     has_shipping_info_button = True
                                     debug_info = f"found: {btn_text} (level {level})"
                                     break
                             
-                            # 如果找到了发货信息按钮，或者容器足够大，就停止搜索
                             if has_shipping_info_button or len(container_text) > 200:
                                 break
                         except:
@@ -216,19 +197,19 @@ class XHSOrderSyncService:
                         break
                 
                 if not has_shipping_info_button and not debug_info:
-                    debug_info = f"no shipping button (checked {len(button_texts)} buttons)"
+                    debug_info = f"no shipping indicator (checked {len(button_texts)} texts)"
                 
-                # 只同步有"发货信息"按钮的订单
+                # 只同步已发货的订单
                 if has_shipping_info_button:
                     valid_orders.add(order_number)
                     print(f"  ✓ 已发货订单: {order_number} ({debug_info})")
                 else:
-                    print(f"  ✗ 未发货订单(跳过): {order_number} ({debug_info})")
+                    print(f"  ✗ 未发货/其他订单(跳过): {order_number} ({debug_info})")
                 
                 orders_data.append({
                     'order': order_number,
                     'has_shipping_button': has_shipping_info_button,
-                    'button_texts': button_texts[:10],
+                    'button_texts': button_texts[:20], # 保存前20个文本
                     'debug': debug_info
                 })
 
