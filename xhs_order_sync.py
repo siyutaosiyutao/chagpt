@@ -128,58 +128,50 @@ class XHSOrderSyncService:
             return False
     
     def extract_orders_from_page(self):
-        """从当前页面提取【已发货未签收】状态的订单号"""
-        valid_orders = set()
-        
+        """从当前页面提取订单号"""
+        orders = set()
         try:
+            # 方法1: 正则表达式提取 (原有方法)
             page_source = self.driver.page_source
+            pattern = r'订单号[：:]\s*(P\d+)'
+            matches = re.findall(pattern, page_source)
+            orders.update(matches)
             
-            # 策略：在页面源码中查找 "订单号：P数字" 后紧跟的状态文本
-            # 只保留状态为 "已发货未签收" 的订单
+            # 方法2: DOM 遍历提取 (更稳健)
+            # 查找包含"订单号"文本的元素
+            try:
+                elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), '订单号')]")
+                for el in elements:
+                    text = el.text.strip()
+                    # 尝试从当前元素文本提取
+                    match = re.search(r'P\d{15,}', text)
+                    if match:
+                        orders.add(match.group(0))
+                        continue
+                        
+                    # 尝试从父元素或兄弟元素提取
+                    try:
+                        parent_text = el.find_element(By.XPATH, "..").text
+                        match = re.search(r'P\d{15,}', parent_text)
+                        if match:
+                            orders.add(match.group(0))
+                    except:
+                        pass
+            except Exception as e:
+                print(f"  DOM提取失败: {e}")
+
+            result = list(orders)
             
-            # 使用正则分割出每个订单块（以 "订单号：" 为分隔符）
-            order_blocks = re.split(r'订单号[：:]', page_source)
-            
-            for block in order_blocks[1:]:  # 跳过第一个空块
-                # 提取订单号
-                order_match = re.search(r'(P\d{15,})', block[:200])  # 只在前200字符查找订单号
-                if not order_match:
-                    continue
-                    
-                order_number = order_match.group(1)
-                
-                # 提取状态（在订单号后的500字符内查找）
-                status_section = block[:500]
-                
-                # 检查是否包含 "已发货未签收"
-                if '已发货未签收' in status_section:
-                    valid_orders.add(order_number)
-                    print(f"  ✓ 找到符合条件的订单: {order_number} (已发货未签收)")
-                else:
-                    # 调试：打印被过滤的订单及其状态
-                    if '已取消' in status_section:
-                        print(f"  ✗ 过滤订单: {order_number} (已取消)")
-                    elif '已完成' in status_section:
-                        print(f"  ✗ 过滤订单: {order_number} (已完成)")
-                    elif '待付款' in status_section or '未付款' in status_section:
-                        print(f"  ✗ 过滤订单: {order_number} (待付款)")
-                    else:
-                        print(f"  ? 跳过订单: {order_number} (状态未识别)")
-            
-            result = list(valid_orders)
-            
-            # 调试: 如果没找到符合条件的订单，保存页面源码以便分析
+            # 调试: 如果没找到订单，保存页面源码以便分析
             if not result:
-                print("  ⚠️ 未找到【已发货未签收】的订单，保存页面源码到 debug_page_source.html")
+                print("  ⚠️ 未找到订单，保存页面源码到 debug_page_source.html")
                 with open("debug_page_source.html", "w", encoding="utf-8") as f:
                     f.write(page_source)
-            
+                    
             return result
             
         except Exception as e:
             print(f"✗ 提取订单时出错: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return []
     
     def scroll_and_load_all(self, max_scrolls=50, scroll_pause=2):
